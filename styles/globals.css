@@ -1,0 +1,353 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* System status indicator */
+.status-indicator {
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-indicator::before {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.status-indicator.online {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: rgb(6, 95, 70);
+}
+
+.status-indicator.offline {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: rgb(153, 27, 27);
+}
+
+.status-indicator.unknown {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: rgb(146, 64, 14);
+}
+
+/* Confidence levels */
+.confidence-alta {
+  color: rgb(16, 185, 129);
+  font-weight: 600;
+}
+
+.confidence-media {
+  color: rgb(245, 158, 11);
+  font-weight: 600;
+}
+
+.confidence-baja {
+  color: rgb(239, 68, 68);
+  font-weight: 600;
+}
+
+/* Recommendation types */
+.recommendation-type-new {
+  font-style: italic;
+  color: rgb(79, 70, 229);
+}
+
+.recommendation-type-recent {
+  color: rgb(16, 185, 129);
+}
+
+/* Table striping and hovering */
+tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+tr:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Modal animation */
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fixed.inset-0 > div {
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+/* New styles for better UX */
+.nav-tab {
+  @apply px-4 py-2 font-medium transition-colors duration-200 relative;
+}
+
+.nav-tab.active {
+  @apply border-b-2 border-blue-600 text-blue-600;
+}
+
+.nav-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: currentColor;
+}
+
+.nav-tab:not(.active):hover {
+  @apply text-blue-500 bg-gray-50 dark:bg-gray-800;
+}
+
+.btn {
+  @apply rounded-md px-4 py-2 font-medium transition-all duration-200 flex items-center justify-center gap-2;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  @apply bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow;
+}
+
+.btn-secondary {
+  @apply bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200;
+}
+
+.btn-success {
+  @apply bg-green-600 hover:bg-green-700 text-white shadow-sm hover:shadow;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white shadow-sm hover:shadow;
+}
+
+.btn-warning {
+  @apply bg-yellow-500 hover:bg-yellow-600 text-white shadow-sm hover:shadow;
+}
+
+.btn-purple {
+  @apply bg-purple-600 hover:bg-purple-700 text-white shadow-sm hover:shadow;
+}
+
+.btn-sm {
+  @apply px-3 py-1 text-sm;
+}
+
+.btn:disabled {
+  @apply opacity-50 cursor-not-allowed hover:shadow-none;
+}
+
+.card {
+  @apply bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 transition-shadow hover:shadow-md;
+}
+
+.input {
+  @apply w-full p-2 border rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors duration-200;
+}
+
+.select {
+  @apply w-full p-2 border rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors duration-200;
+}
+
+.badge {
+  @apply inline-block px-2 py-1 text-xs font-medium rounded;
+}
+
+.badge-success {
+  @apply bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200;
+}
+
+.badge-warning {
+  @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200;
+}
+
+.badge-danger {
+  @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200;
+}
+
+.table-container {
+  @apply overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm;
+}
+
+.data-table {
+  @apply min-w-full divide-y divide-gray-200 dark:divide-gray-700;
+}
+
+.data-table th {
+  @apply px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-gray-800 sticky top-0;
+}
+
+.data-table td {
+  @apply px-3 py-3 whitespace-nowrap;
+}
+
+/* Tooltip styles */
+.tooltip {
+  @apply relative inline-block;
+}
+
+.tooltip .tooltip-text {
+  @apply invisible absolute z-10 p-2 text-xs rounded bg-gray-800 text-white opacity-0 transition-opacity duration-300;
+  width: 150px;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -75px;
+  text-align: center;
+}
+
+.tooltip:hover .tooltip-text {
+  @apply visible opacity-100;
+}
+
+/* Loading spinner */
+.spinner {
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #3498db;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+.spinner-large {
+  width: 40px;
+  height: 40px;
+  border-width: 4px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Level indicators */
+.level-indicator {
+  @apply inline-flex items-center;
+}
+
+.level-indicator span {
+  @apply inline-block w-2 h-2 rounded-full mx-0.5 transition-all duration-200;
+}
+
+.level-indicator[data-level="5"] span:nth-child(-n+5) {
+  @apply bg-blue-600;
+}
+
+.level-indicator[data-level="4"] span:nth-child(-n+4) {
+  @apply bg-green-600;
+}
+
+.level-indicator[data-level="3"] span:nth-child(-n+3) {
+  @apply bg-yellow-500;
+}
+
+.level-indicator[data-level="2"] span:nth-child(-n+2) {
+  @apply bg-orange-500;
+}
+
+.level-indicator[data-level="1"] span:nth-child(-n+1) {
+  @apply bg-red-600;
+}
+
+/* Nueva sección de diseño para dashboard y estadísticas */
+.stat-card {
+  @apply bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 transition-shadow hover:shadow-md;
+}
+
+.stat-value {
+  @apply text-2xl font-bold;
+}
+
+.stat-label {
+  @apply text-sm text-gray-500 dark:text-gray-400;
+}
+
+.stat-trend-up {
+  @apply flex items-center gap-1 text-green-600;
+}
+
+.stat-trend-down {
+  @apply flex items-center gap-1 text-red-600;
+}
+
+.dashboard-grid {
+  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4;
+}
+
+/* Animación para elementos que se cargan */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* Sistema de tabs mejorado */
+.tabs-container {
+  @apply border-b border-gray-200 dark:border-gray-700;
+}
+
+.tab-button {
+  @apply px-4 py-2 font-medium text-gray-600 dark:text-gray-300 relative;
+}
+
+.tab-button.active {
+  @apply text-blue-600 border-b-2 border-blue-600;
+}
+
+.tab-content {
+  @apply mt-4;
+}
+
+/* Esquema de colores para notas y alertas */
+.note {
+  @apply p-3 rounded-md text-sm;
+}
+
+.note-info {
+  @apply bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200;
+}
+
+.note-warning {
+  @apply bg-yellow-50 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200;
+}
+
+.note-success {
+  @apply bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200;
+}
+
+.note-error {
+  @apply bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200;
+}
+
+/* Efecto de skeletons para carga */
+.skeleton {
+  @apply bg-gray-200 dark:bg-gray-700 animate-pulse rounded;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.2),
+    rgba(255, 255, 255, 0)
+  );
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  background-position: left -200px top 0;
+  animation: skeleton 1.5s ease infinite;
+}
+
+@keyframes skeleton {
+  to {
+    background-position: right -200px top 0;
+  }
+}

@@ -1,36 +1,27 @@
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import localFont from 'next/font/local';
 import Link from 'next/link';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
+import { Prediction, NoOrdenadoRazon, FeedbackProduct } from '../../types/models';
+import { isUserLoggedIn, getCurrentUser } from '../../utils/auth';
+import OrderFeedbackModal from '../../components/OrderFeedbackModal';
+import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
 
-const geistSans = localFont({
-  src: '../fonts/GeistVF.woff',
-  variable: '--font-geist-sans',
-  weight: '100 900',
-});
-
-const geistMono = localFont({
-  src: '../fonts/GeistMonoVF.woff',
-  variable: '--font-geist-mono',
-  weight: '100 900',
-});
-
-interface Prediction {
+interface CommonProduct {
+  producto: string; // Add this line
   nombre: string;
-  cantidad: number;
-  confianza: number;
-  nivel_confianza?: string;
-  articulo_id?: string;
-}
-
-interface Recommendation {
-  nombre: string;
-  cantidad_sugerida: number;
-  confianza: number;
-  tipo: string;
+  cantidadPredicha: number;
+  cantidadSugerida: number;
+  cantidadPromedio?: number;
+  confianzaPrediccion: number;
+  confianzaRecomendacion: number;
+  diferenciaCantidad?: number;
+  porcentajeDiferencia?: number;
+  tipo?: string;
   motivo?: string;
+  articulo_id?: string;
+  // Campos adicionales de recomendación
   min_cantidad?: number;
   max_cantidad?: number;
   tipo_recomendacion?: string;
@@ -45,6 +36,10 @@ interface Recommendation {
   ultima_fecha_pedido?: string;
   dias_desde_ultimo_pedido?: number;
   cantidad_ultimo_pedido?: number;
+  // Feedback fields
+  ordenado?: boolean;
+  razon_no_ordenado?: NoOrdenadoRazon;
+  comentario_no_ordenado?: string;
 }
 
 interface PredictionData {
@@ -52,56 +47,175 @@ interface PredictionData {
   branch: string;
   date: string;
   predictions: Prediction[];
-  recommendations?: Recommendation[];
-  commonProducts?: {
-    nombre: string;
-    cantidadPredicha: number;
-    cantidadSugerida: number;
-    cantidadPromedio: number;
-    confianzaPrediccion: number;
-    confianzaRecomendacion: number;
-    tipo: string;
-    articulo_id?: string;
-    // Campos para análisis comparativo
-    diferenciaCantidad?: number;
-    porcentajeDiferencia?: number;
-    motivo: string;
-    // Campos adicionales de la API
-    min_cantidad?: number;
-    max_cantidad?: number;
-    tipo_recomendacion?: string;
-    frecuencia_otras?: number;
-    num_sucursales?: number;
-    nivel_recomendacion?: number;
-    pedidos_recientes_otras?: Array<{
-      sucursal: string;
-      dias_desde_pedido: number;
-      cantidad: number;
-    }>;
-    ultima_fecha_pedido?: string;
-    dias_desde_ultimo_pedido?: number;
-    cantidad_ultimo_pedido?: number;
-  }[];
+  recommendations: any[];
+  commonProducts: CommonProduct[];
 }
 
-export default function SucursalView() {
+const SucursalPage: React.FC = () => {
   const router = useRouter();
   const { id } = router.query;
-  
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
+  const [branchName, setBranchName] = useState('');
   const [systemStatus, setSystemStatus] = useState<"online" | "offline" | "unknown">("unknown");
-  const [branchName, setBranchName] = useState<string>("");
+  const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<CommonProduct | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loadingFeedback, setLoadingFeedback] = useState<{[key: string]: boolean}>({});
+  
+  // Function to toggle product expansion
+  const toggleProductExpansion = (productName: string) => {
+    if (expandedProduct === productName) {
+      setExpandedProduct(null);
+    } else {
+      setExpandedProduct(productName);
+    }
+  };
+  
+  // Helper functions for styling
+  const getConfidenceClass = (confidence: number) => {
+    if (confidence >= 80) return 'text-green-600 dark:text-green-400';
+    if (confidence >= 60) return 'text-yellow-600 dark:text-yellow-400';
+    return 'text-red-600 dark:text-red-400';
+  };
+  
+  const getConfidenceLevel = (confidence: number) => {
+    if (confidence >= 90) return 'Muy Alta';
+    if (confidence >= 80) return 'Alta';
+    if (confidence >= 70) return 'Media';
+    if (confidence >= 60) return 'Baja';
+    return 'Muy Baja';
+  };
+  
+  const getLevelBadgeClass = (confidence: number) => {
+    if (confidence >= 90) return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200';
+    if (confidence >= 80) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200';
+    if (confidence >= 70) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200';
+    if (confidence >= 60) return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200';
+    return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200';
+  };
+  
+  const getDifferenceClass = (difference: number) => {
+    if (Math.abs(difference) < 2) return 'text-gray-600 dark:text-gray-400';
+    if (difference > 0) return 'text-green-600 dark:text-green-400';
+    return 'text-red-600 dark:text-red-400';
+  };
+
+  // Open modal for feedback
+  const handleOpenFeedbackModal = (product: CommonProduct) => {
+    setSelectedProduct(product);
+    setIsModalOpen(true);
+  };
+
+  // Helper function to render order status
+  const renderOrderStatus = (product: CommonProduct) => {
+    if (product.ordenado === true) {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          <FiCheck className="mr-1" /> Ordenado
+        </span>
+      );
+    } else if (product.ordenado === false) {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+          <FiX className="mr-1" /> No ordenado
+          {product.razon_no_ordenado && (
+            <span className="ml-1">
+              ({product.razon_no_ordenado === 'hay_en_tienda' 
+                ? 'En tienda' 
+                : product.razon_no_ordenado === 'hay_en_cedis' 
+                  ? 'En CEDIS' 
+                  : 'Otro'})
+            </span>
+          )}
+        </span>
+      );
+    }
+    return null;
+  };
+
+  // Function to get common products between predictions and recommendations
+  const getCommonProducts = (predictions: Prediction[], recommendations: any[]): CommonProduct[] => {
+    const result: CommonProduct[] = [];
+    
+    // Create maps for faster lookup
+    const predMap = new Map(predictions.map(p => [p.nombre.toLowerCase(), p]));
+    const recMap = new Map(recommendations.map(r => [r.nombre.toLowerCase(), r]));
+    
+    // Find common products
+    for (const pred of predictions) {
+      const predName = pred.nombre.toLowerCase();
+      if (recMap.has(predName)) {
+        const rec = recMap.get(predName)!;
+        
+        // Calculate differences
+        const predQty = pred.cantidad;
+        const recQty = rec.cantidad_sugerida;
+        const difference = recQty - predQty;
+        const percentDiff = predQty > 0 ? (difference / predQty) * 100 : 0;
+        
+        // Create common product object with feedback fields from prediction
+        result.push({
+          producto: pred.nombre,
+          nombre: pred.nombre,
+          cantidadPredicha: predQty,
+          cantidadSugerida: recQty,
+          cantidadPromedio: Math.round((predQty + recQty) / 2),
+          confianzaPrediccion: pred.confianza,
+          confianzaRecomendacion: rec.confianza,
+          diferenciaCantidad: difference,
+          porcentajeDiferencia: percentDiff,
+          tipo: rec.tipo,
+          motivo: rec.motivo,
+          // Additional fields from recommendation
+          min_cantidad: rec.min_cantidad,
+          max_cantidad: rec.max_cantidad,
+          tipo_recomendacion: rec.tipo_recomendacion,
+          frecuencia_otras: rec.frecuencia_otras,
+          num_sucursales: rec.num_sucursales,
+          nivel_recomendacion: rec.nivel_recomendacion,
+          pedidos_recientes_otras: rec.pedidos_recientes_otras,
+          ultima_fecha_pedido: rec.ultima_fecha_pedido,
+          dias_desde_ultimo_pedido: rec.dias_desde_ultimo_pedido,
+          cantidad_ultimo_pedido: rec.cantidad_ultimo_pedido,
+          articulo_id: rec.articulo_id,
+          // Feedback fields from prediction
+          ordenado: pred.ordenado,
+          razon_no_ordenado: pred.razon_no_ordenado,
+          comentario_no_ordenado: pred.comentario_no_ordenado,
+        });
+      }
+    }
+    
+    // Sort by name
+    return result.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  };
+
+  const fetchFeedbackData = async () => {
+    try {
+      const response = await fetch(`/api/feedback?sucursal=${encodeURIComponent(id as string)}`);
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.feedback;
+    } catch (error) {
+      console.error('Error fetching feedback data:', error);
+      return [];
+    }
+  };
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !router.isReady) return;
 
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
+
+        // Fetch feedback data
+        const feedbackData = await fetchFeedbackData();
 
         // Establecer el nombre de la sucursal inicialmente desde el parámetro de la URL
         const decodedId = typeof id === 'string' ? decodeURIComponent(id) : '';
@@ -142,8 +256,14 @@ export default function SucursalView() {
         // Obtener los productos comunes (intersección) con análisis comparativo
         const commonProducts = getCommonProducts(predictions, recommendations);
         
+        // Merge feedback data with common products
+        const mergedProducts = commonProducts.map(product => {
+            const feedback = feedbackData.find((fb: { producto: string }) => fb.producto === product.nombre);
+          return feedback ? { ...product, ...feedback } : product;
+        });
+
         // Asegurarnos de que cantidadPromedio esté definido en todos los productos
-        commonProducts.forEach(product => {
+        mergedProducts.forEach(product => {
           if (product.cantidadPromedio === undefined) {
             product.cantidadPromedio = Math.round((product.cantidadPredicha + product.cantidadSugerida) / 2);
           }
@@ -155,10 +275,10 @@ export default function SucursalView() {
           date: data.prediction.date,
           predictions: predictions,
           recommendations: recommendations,
-          commonProducts: commonProducts
+          commonProducts: mergedProducts
         });
         
-        console.log(`Productos comunes encontrados: ${commonProducts.length}`);
+        console.log(`Productos comunes encontrados: ${mergedProducts.length}`);
       } catch (err) {
         console.error('Error al cargar datos:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar datos');
@@ -168,99 +288,70 @@ export default function SucursalView() {
     };
 
     fetchData();
-  }, [id]);
+  }, [id, router.isReady]);
 
-  // Función para encontrar productos comunes entre predicciones y recomendaciones
-  const getCommonProducts = (predictions: Prediction[], recommendations: Recommendation[]) => {
-    // Crear un mapa de productos predichos para búsqueda rápida
-    const predictionMap = new Map();
-    predictions.forEach(prediction => {
-      predictionMap.set(prediction.nombre, prediction);
-    });
-    
-    // Encontrar productos que están en ambas listas
-    const commonProducts = [];
-    for (const recommendation of recommendations) {
-      if (predictionMap.has(recommendation.nombre)) {
-        const prediction = predictionMap.get(recommendation.nombre);
+  // Handle feedback submission for common products
+  const handleSaveFeedback = async (
+    product: FeedbackProduct,
+    ordered: boolean,
+    reason?: NoOrdenadoRazon,
+    comment?: string
+  ): Promise<void> => {
+    try {
+      setLoadingFeedback(prev => ({ ...prev, [product.producto]: true }));
+      
+      const response = await fetch('/api/order-feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          producto: product.producto,
+          cantidad: product.cantidadPredicha ?? product.cantidad ?? 0,
+          sucursal: id,
+          fecha: new Date().toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
+          ordenado: ordered,
+          razon_no_ordenado: reason,
+          comentario: comment
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Error saving feedback');
+      }
+
+      // Update the product in the commonProducts array
+      if (predictionData) {
+        const updatedProducts = predictionData.commonProducts.map(p => {
+          if (p.nombre === product.producto) {
+            return {
+              ...p,
+              ordenado: ordered,
+              razon_no_ordenado: reason,
+              comentario_no_ordenado: comment
+            };
+          }
+          return p;
+        });
         
-        // Calcular métricas comparativas
-        const diferenciaCantidad = recommendation.cantidad_sugerida - prediction.cantidad;
-        const porcentajeDiferencia = prediction.cantidad === 0 
-          ? 100 // Evitar división por cero
-          : (diferenciaCantidad / prediction.cantidad) * 100;
-        
-        // Calcular el promedio entre cantidad predicha y recomendada
-        const cantidadPromedio = Math.round((prediction.cantidad + recommendation.cantidad_sugerida) / 2);
-        
-        commonProducts.push({
-          nombre: recommendation.nombre,
-          cantidadPredicha: prediction.cantidad,
-          cantidadSugerida: recommendation.cantidad_sugerida,
-          cantidadPromedio: cantidadPromedio,
-          confianzaPrediccion: prediction.confianza,
-          confianzaRecomendacion: recommendation.confianza,
-          tipo: recommendation.tipo || 'Recomendación',
-          articulo_id: prediction.articulo_id,
-          diferenciaCantidad,
-          porcentajeDiferencia,
-          motivo: recommendation.motivo || 'No disponible',
-          // Campos adicionales de la API
-          min_cantidad: recommendation.min_cantidad,
-          max_cantidad: recommendation.max_cantidad,
-          tipo_recomendacion: recommendation.tipo_recomendacion,
-          frecuencia_otras: recommendation.frecuencia_otras,
-          num_sucursales: recommendation.num_sucursales,
-          nivel_recomendacion: recommendation.nivel_recomendacion,
-          pedidos_recientes_otras: recommendation.pedidos_recientes_otras,
-          ultima_fecha_pedido: recommendation.ultima_fecha_pedido,
-          dias_desde_ultimo_pedido: recommendation.dias_desde_ultimo_pedido,
-          cantidad_ultimo_pedido: recommendation.cantidad_ultimo_pedido
+        setPredictionData({
+          ...predictionData,
+          commonProducts: updatedProducts
         });
       }
-    }
-    
-    // Ordenar por diferencia porcentual descendente (para mostrar primero los que más difieren)
-    return commonProducts.sort((a, b) => Math.abs(b.porcentajeDiferencia!) - Math.abs(a.porcentajeDiferencia!));
-  };
-
-  const getConfidenceClass = (confidence: number) => {
-    if (confidence >= 80) return "text-green-600 dark:text-green-400";
-    if (confidence >= 60) return "text-yellow-600 dark:text-yellow-400";
-    return "text-red-600 dark:text-red-400";
-  };
-  
-  const getConfidenceLevel = (confidence: number) => {
-    if (confidence >= 80) return "Alto";
-    if (confidence >= 60) return "Medio";
-    return "Bajo";
-  };
-
-  // Solo mostrar el color si la confianza está disponible
-  const getLevelBadgeClass = (confidence: number) => {
-    if (confidence >= 80) return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200";
-    if (confidence >= 60) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200";
-    return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200";
-  };
-  
-  // Nuevo: Obtener clase CSS para la diferencia
-  const getDifferenceClass = (difference: number) => {
-    if (difference > 10) return "text-green-600 dark:text-green-400";
-    if (difference < -10) return "text-red-600 dark:text-red-400";
-    return "text-yellow-600 dark:text-yellow-400";
-  };
-  
-  // Función para toggle la expansión de un producto
-  const toggleProductExpansion = (productName: string) => {
-    if (expandedProduct === productName) {
-      setExpandedProduct(null);
-    } else {
-      setExpandedProduct(productName);
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error saving feedback:', error);
+      throw error;
+    } finally {
+      setLoadingFeedback(prev => ({ ...prev, [product.producto]: false }));
+      setIsModalOpen(false);
     }
   };
 
   return (
-    <div className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-gray-50 dark:bg-gray-900 font-[family-name:var(--font-geist-sans)]`}>
+    <div>
       <header className="bg-white dark:bg-gray-800 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
@@ -371,11 +462,19 @@ export default function SucursalView() {
                                   </span>
                                 </p>
                               </div>
+                              <button
+                                onClick={() => handleOpenFeedbackModal(product)}
+                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                              >
+                                <FiInfo className="mr-2" />
+                                Dar Feedback
+                              </button>
                             </div>
                             <div className="flex items-center">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mr-2 ${getLevelBadgeClass(product.confianzaPrediccion)}`}>
                                 {getConfidenceLevel(product.confianzaPrediccion)}
                               </span>
+                              {renderOrderStatus(product)}
                               <svg 
                                 className={`h-5 w-5 text-gray-400 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
                                 xmlns="http://www.w3.org/2000/svg" 
@@ -646,7 +745,7 @@ export default function SucursalView() {
                                         />
                                         <div 
                                           className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-500 dark:bg-indigo-600"
-                                          style={{ width: `${33 * (product.cantidadPromedio / product.cantidadPredicha) || 0}%` }}
+                                          style={{ width: `${33 * ((product.cantidadPromedio ?? 0) / (product.cantidadPredicha ?? 1))}%` }}
                                         />
                                         <div 
                                           className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-purple-500 dark:bg-purple-600"
@@ -689,49 +788,6 @@ export default function SucursalView() {
                     </div>
                   )}
                 </div>
-
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                      Información Adicional
-                    </h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Detalles sobre las predicciones y recomendaciones
-                    </p>
-                  </div>
-                  <div className="p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-2">Predicciones</h3>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Total productos</span>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">{predictionData.predictions.length}</span>
-                        </div>
-                        <div className="mt-2 flex justify-between items-center">
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Productos mostrados</span>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">{predictionData.commonProducts?.length || 0}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-2">Recomendaciones</h3>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Total productos</span>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">{predictionData.recommendations?.length || 0}</span>
-                        </div>
-                        <div className="mt-2 flex justify-between items-center">
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Productos comunes</span>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">{predictionData.commonProducts?.length || 0}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                      <p>Nota: En esta vista solo se muestran los productos que aparecen tanto en predicciones como en recomendaciones.</p>
-                      <p className="mt-1">Para ver el conjunto completo de datos, visite el <Link href="/enrique" className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300">Panel Avanzado</Link>.</p>
-                    </div>
-                  </div>
-                </div>
               </>
             )}
           </div>
@@ -741,6 +797,19 @@ export default function SucursalView() {
       <footer className="mt-16 pt-6 border-t border-gray-200 dark:border-gray-800 text-center text-sm text-gray-500 dark:text-gray-400">
         <p>Sistema de Predicción de Inventario © {new Date().getFullYear()}</p>
       </footer>
+
+      {/* Modal for feedback */}
+      {selectedProduct && (
+        <OrderFeedbackModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          product={selectedProduct}
+          onSubmit={handleSaveFeedback}
+          loading={loadingFeedback[selectedProduct.nombre] || false}
+        />
+      )}
     </div>
   );
-}   
+};
+
+export default SucursalPage;

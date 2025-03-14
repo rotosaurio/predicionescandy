@@ -1,10 +1,28 @@
 // Prediction types
 
 export interface Prediction {
+  producto: string;
   nombre: string;
   cantidad: number;
   confianza: number;
   nivel_confianza?: string;
+  ordenado?: boolean;
+  razon_no_ordenado?: NoOrdenadoRazon;
+  comentario_no_ordenado?: string;
+}
+
+export type NoOrdenadoRazon = "hay_en_tienda" | "hay_en_cedis" | "otro";
+
+export interface OrderFeedback {
+  predictionId: string;
+  producto: string;
+  sucursal: string;
+  fecha: string;
+  ordenado: boolean;
+  razon_no_ordenado?: NoOrdenadoRazon;
+  comentario?: string;
+  usuario: string;
+  fecha_feedback: string;
 }
 
 export interface Recommendation {
@@ -50,6 +68,21 @@ export interface ProductoDuplicado {
     recommendationLevel: number;
     suggestedAction: string;
   };
+}
+
+// Flexible product type for feedback that supports both Prediction and CommonProduct
+export interface FeedbackProduct {
+  producto: string; // Ensure this field is included
+  cantidad?: number;
+  cantidadPredicha?: number;
+  confianza?: number;
+  confianzaPrediccion?: number;
+  ordenado?: boolean;
+  razon_no_ordenado?: NoOrdenadoRazon;
+  comentario_no_ordenado?: string;
+  sucursal?: string;
+  fecha?: string;
+  comentario?: string; // Ensure this field is included
 }
 
 // History types

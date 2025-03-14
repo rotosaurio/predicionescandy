@@ -3,6 +3,8 @@ import localFont from "next/font/local";
 import { useState, useEffect } from "react";
 import { format, parseISO, startOfMonth, endOfMonth, isSameDay } from "date-fns";
 import Link from "next/link";
+import ObservationsTable from '../../components/ObservationsTable';
+import { FeedbackProduct } from '../../types/models';
 
 const geistSans = localFont({
   src: "../fonts/GeistVF.woff",
@@ -51,6 +53,12 @@ interface BranchStats {
   }[];
 }
 
+interface FeedbackData {
+  sucursal: string;
+  fecha: string;
+  feedback: FeedbackProduct[];
+}
+
 export default function AdvancedPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +77,8 @@ export default function AdvancedPanel() {
     products: 0,
     averageConfidence: 0,
   });
+  const [observations, setObservations] = useState<FeedbackProduct[]>([]);
+  const [feedbackData, setFeedbackData] = useState<FeedbackData[]>([]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -95,6 +105,8 @@ export default function AdvancedPanel() {
         
         // Cargar historial de predicciones
         await loadHistoricalData();
+        // Cargar feedback
+        await loadFeedbackData();
       } catch (err) {
         setError("Error al cargar datos. Por favor, intente más tarde.");
         console.error("Error:", err);
@@ -403,6 +415,52 @@ export default function AdvancedPanel() {
     const predictionDate = new Date(date);
     const today = new Date();
     return isSameDay(predictionDate, today);
+  };
+
+  const loadFeedbackData = async () => {
+    try {
+      console.log("Cargando feedback desde MongoDB...");
+      const response = await fetch('/api/feedback');
+      
+      if (!response.ok) {
+        throw new Error(`Error al cargar feedback: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && Array.isArray(data.feedback)) {
+        console.log(`${data.feedback.length} feedbacks cargados desde MongoDB`);
+        
+        // Agrupar feedback por sucursal y fecha
+        const groupedData: FeedbackData[] = [];
+        const feedbackMap = new Map<string, Map<string, FeedbackProduct[]>>();
+        data.feedback.forEach((item: FeedbackProduct) => {
+          const sucursal = item.sucursal || "Desconocida";
+          const fecha = item.fecha || "Desconocida";
+          if (!feedbackMap.has(sucursal)) {
+            feedbackMap.set(sucursal, new Map<string, FeedbackProduct[]>());
+          }
+          const sucursalMap = feedbackMap.get(sucursal)!;
+          if (!sucursalMap.has(fecha)) {
+            sucursalMap.set(fecha, []);
+          }
+          sucursalMap.get(fecha)!.push(item);
+        });
+        feedbackMap.forEach((fechaMap, sucursal) => {
+          fechaMap.forEach((feedback, fecha) => {
+            groupedData.push({ sucursal, fecha, feedback });
+          });
+        });
+        setFeedbackData(groupedData);
+        console.log("Datos de feedback cargados correctamente:", groupedData);
+      } else {
+        console.log("No se encontró feedback en la base de datos");
+        setFeedbackData([]);
+      }
+    } catch (err) {
+      console.error("Error al cargar el feedback:", err);
+      setError("Error al cargar el feedback");
+    }
   };
 
   const filteredData = filterHistoricalData();
@@ -738,6 +796,29 @@ export default function AdvancedPanel() {
                 </div>
               )}
             </div>
+
+            {/* Tabla de Observaciones */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Feedback por Sucursal y Fecha</h2>
+              </div>
+              <div className="p-6">
+                {feedbackData.length > 0 ? (
+                  feedbackData.map((data, index) => (
+                    <div key={index} className="mb-8">
+                      <h3 className="text-md font-semibold text-gray-900 dark:text-white">
+                        Sucursal: {data.sucursal} - Fecha: {data.fecha}
+                      </h3>
+                      <ObservationsTable observations={data.feedback} />
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-center py-4 text-gray-500 dark:text-gray-400">
+                    No hay feedback disponible.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </main>
@@ -747,4 +828,4 @@ export default function AdvancedPanel() {
       </footer>
     </div>
   );
-} 
+}

@@ -1,7 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import type { IconType } from 'react-icons';
 
 // Intentar importar los iconos, pero usar fallbacks si fallan
-let FiBarChart2, FiTrendingUp, FiCheckCircle, FiClock, FiBox, FiDatabase;
+let FiBarChart2: IconType;
+let FiTrendingUp: IconType;
+let FiCheckCircle: IconType;
+let FiClock: IconType;
+let FiBox: IconType;
+let FiDatabase: IconType;
 
 try {
   const icons = require('react-icons/fi');
@@ -12,9 +18,9 @@ try {
   FiBox = icons.FiBox;
   FiDatabase = icons.FiDatabase;
 } catch (e) {
-  // Fallback components if react-icons is not available
-  const IconFallback = ({ children }: { children?: React.ReactNode }) => 
-    <span className="inline-block w-5 h-5 bg-gray-300 rounded-sm mr-2">{children}</span>;
+  // Simple fallback component if react-icons is not available
+  const IconFallback: IconType = ({ children }: { children?: React.ReactNode }) => 
+    <span className="inline-block w-5 h-5 bg-gray-300 rounded-sm mr-1">{children}</span>;
   
   FiBarChart2 = IconFallback;
   FiTrendingUp = IconFallback;

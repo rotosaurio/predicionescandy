@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import type { IconType } from 'react-icons';
 
 // Intentar importar los iconos con un fallback
-let FiRefreshCw, FiHome, FiCheck, FiX;
+let FiRefreshCw: IconType;
+let FiHome: IconType;
+let FiCheck: IconType;
+let FiX: IconType;
 
 try {
   const icons = require('react-icons/fi');
@@ -13,7 +17,7 @@ try {
   FiX = icons.FiX;
 } catch (e) {
   // Simple fallback component if react-icons is not available
-  const IconFallback = ({ children }: { children?: React.ReactNode }) => 
+  const IconFallback: IconType = ({ children }: { children?: React.ReactNode }) => 
     <span className="inline-block w-5 h-5 bg-gray-300 rounded-sm mr-1">{children}</span>;
   
   FiRefreshCw = IconFallback;

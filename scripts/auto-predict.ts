@@ -1,11 +1,30 @@
 import { schedule } from 'node-cron';
 import fetch from 'node-fetch';
 
+interface AutoPredictionResult {
+  success: boolean;
+  results: Array<{
+    sucursal: string;
+    status: string;
+    message: string;
+    lastUpdate?: string;
+    dateRange?: {
+      start: string;
+      end: string;
+    };
+  }>;
+  errors: Array<{
+    sucursal: string;
+    error: string;
+  }>;
+  nextScheduledUpdate: string;
+}
+
 const API_URL = process.env.NODE_ENV === 'production' 
   ? 'https://tu-dominio.com'  // Reemplazar con tu dominio de producción
   : 'http://localhost:3000';
 
-async function generatePredictions() {
+async function generatePredictions(): Promise<AutoPredictionResult> {
   try {
     console.log('Iniciando generación automática de predicciones...');
     
@@ -20,7 +39,7 @@ async function generatePredictions() {
       throw new Error(`Error: ${response.status} ${response.statusText}`);
     }
 
-    const result = await response.json();
+    const result = await response.json() as AutoPredictionResult;
     
     console.log('Resultado de la generación automática:', result);
     

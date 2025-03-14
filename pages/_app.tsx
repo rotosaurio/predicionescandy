@@ -1,6 +1,7 @@
 import '../styles/globals.css';
 import type { AppProps } from 'next/app';
 import { useEffect } from 'react';
+import { RouteGuard } from '../components/RouteGuard';
 
 function MyApp({ Component, pageProps }: AppProps) {
   // Global error handler
@@ -27,10 +28,15 @@ function MyApp({ Component, pageProps }: AppProps) {
     if (typeof window !== 'undefined') {
       console.log('LocalStorage available:', typeof localStorage !== 'undefined');
       console.log('Fetch API available:', typeof fetch !== 'undefined');
+      console.log('SessionStorage available:', typeof sessionStorage !== 'undefined');
     }
   }, []);
 
-  return <Component {...pageProps} />;
+  return (
+    <RouteGuard>
+      <Component {...pageProps} />
+    </RouteGuard>
+  );
 }
 
 export default MyApp;

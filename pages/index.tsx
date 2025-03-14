@@ -2,6 +2,8 @@ import Image from "next/image";
 import localFont from "next/font/local";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
+import { isUserLoggedIn, getCurrentUser, clearCurrentUser } from "../utils/auth";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -19,8 +21,24 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<string[]>([]);
   const [systemStatus, setSystemStatus] = useState<"online" | "offline" | "unknown">("unknown");
+  const router = useRouter();
 
   useEffect(() => {
+    // Check if user is logged in
+    if (!isUserLoggedIn()) {
+      router.push('/login?redirect=/');
+      return;
+    }
+    
+    // Check user permissions
+    const user = getCurrentUser();
+    
+    // If user is normal, redirect to their specific branch
+    if (user && user.role === 'normal' && user.sucursal) {
+      router.push(`/sucursal/${encodeURIComponent(user.sucursal)}`);
+      return;
+    }
+
     const fetchBranches = async () => {
       try {
         setLoading(true);
@@ -45,13 +63,18 @@ export default function Home() {
       } catch (err) {
         setError("Error al cargar sucursales. Por favor, intente más tarde.");
         console.error("Error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      } finally {
+        setLoading(false);
+      }
+    };
 
     fetchBranches();
-  }, []);
+  }, [router]);
+
+  const handleLogout = () => {
+    clearCurrentUser();
+    router.push('/login');
+  };
 
   return (
     <div className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-gray-50 dark:bg-gray-900 font-[family-name:var(--font-geist-sans)]`}>
@@ -90,6 +113,12 @@ export default function Home() {
                 >
                   Panel Avanzado
                 </Link>
+                <button
+                  onClick={handleLogout}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                >
+                  Cerrar sesión
+                </button>
               </div>
           </div>
           </div>

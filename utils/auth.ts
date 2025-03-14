@@ -53,7 +53,7 @@ export function getUserSucursal(user: User): string | null {
 }
 
 export function canAccessSucursal(user: User, sucursalName: string): boolean {
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin' || user.role === 'advanced') return true;
   if (user.role === 'normal' && user.sucursal === sucursalName) return true;
   return false;
 }

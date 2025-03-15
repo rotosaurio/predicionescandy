@@ -161,13 +161,13 @@ export default function Home() {
                 >
                   <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 hover:shadow-lg transition-shadow">
                     <div className="flex justify-between items-start">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{getDisplayBranchName(branch)}</h3>
-                      <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-xs font-medium">
-                        Sucursal
-                      </span>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                        <span className="block">SUCURSAL</span>
+                        <span className="block">{getDisplayBranchName(branch).replace('SUCURSAL ', '')}</span>
+                      </h3>
                     </div>
                     <p className="text-gray-600 dark:text-gray-400 text-sm">
-                      Ver últimas predicciones de productos  recomendados
+                      Ver últimas predicciones de productos recomendados
                     </p>
                     <div className="mt-4 flex items-center justify-between">
                       <div className="text-indigo-600 dark:text-indigo-400 text-sm font-medium flex items-center">

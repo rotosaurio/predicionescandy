@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { isUserLoggedIn, getCurrentUser, clearCurrentUser } from "../utils/auth";
 import { getDisplayBranchName } from "../utils/branchMapping";
+import FallingCandies from "../components/FallingCandies";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -79,6 +80,7 @@ export default function Home() {
 
   return (
     <div className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-gray-50 dark:bg-gray-900 font-[family-name:var(--font-geist-sans)]`}>
+      <FallingCandies count={15} />
       <header className="bg-white dark:bg-gray-800 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex justify-between items-center">

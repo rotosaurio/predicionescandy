@@ -7,6 +7,7 @@ import { Prediction, NoOrdenadoRazon, FeedbackProduct } from '../../types/models
 import { isUserLoggedIn, getCurrentUser } from '../../utils/auth';
 import OrderFeedbackModal from '../../components/OrderFeedbackModal';
 import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
+import { getDisplayBranchName } from '../../utils/branchMapping';
 
 interface CommonProduct {
   producto: string; // Add this line
@@ -123,10 +124,10 @@ const SucursalPage: React.FC = () => {
           {product.razon_no_ordenado && (
             <span className="ml-1">
               ({product.razon_no_ordenado === 'hay_en_tienda' 
-                ? 'En tienda' 
+                ? 'Hay producto en tienda' 
                 : product.razon_no_ordenado === 'hay_en_cedis' 
-                  ? 'En CEDIS' 
-                  : 'Otro'})
+                  ? 'No hay producto en CEDIS' 
+                  : product.comentario_no_ordenado || product.razon_no_ordenado})
             </span>
           )}
         </span>
@@ -219,7 +220,7 @@ const SucursalPage: React.FC = () => {
 
         // Establecer el nombre de la sucursal inicialmente desde el parámetro de la URL
         const decodedId = typeof id === 'string' ? decodeURIComponent(id) : '';
-        setBranchName(decodedId);
+        setBranchName(getDisplayBranchName(decodedId));
 
         const statusResponse = await fetch('/api/proxy?endpoint=estado');
         if (statusResponse.ok) {
@@ -243,7 +244,7 @@ const SucursalPage: React.FC = () => {
         
         // Actualizar el nombre de la sucursal con el nombre real devuelto por la API
         if (data.branch) {
-          setBranchName(data.branch);
+          setBranchName(getDisplayBranchName(data.branch));
         }
         
         // Manejar tanto 'recommendations' como 'recommendation' (singular y plural)
@@ -358,7 +359,7 @@ const SucursalPage: React.FC = () => {
             <div className="flex items-center gap-4">
               <Image
                 className="dark:invert"
-                src="https://nextjs.org/icons/next.svg"
+                src="/LOGO.png"
                 alt="Logo"
                 width={100}
                 height={20}
@@ -366,7 +367,7 @@ const SucursalPage: React.FC = () => {
               />
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Sucursal: {branchName}
+                   {branchName}
                 </h1>
                 {predictionData && (
                   <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -462,13 +463,16 @@ const SucursalPage: React.FC = () => {
                                   </span>
                                 </p>
                               </div>
-                              <button
-                                onClick={() => handleOpenFeedbackModal(product)}
-                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                              >
-                                <FiInfo className="mr-2" />
-                                Dar Feedback
-                              </button>
+                              {/* Only show the button if feedback doesn't exist (ordenado is undefined) */}
+                              {product.ordenado === undefined && (
+                                <button
+                                  onClick={() => handleOpenFeedbackModal(product)}
+                                  className="px-2 py-1 text-xs font-medium text-white bg-[#0B9ED9] rounded hover:bg-[#0989c0] flex items-center"
+                                >
+                                  <FiInfo className="mr-2" />
+                                  Motivo de omisión
+                                </button>
+                              )}
                             </div>
                             <div className="flex items-center">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mr-2 ${getLevelBadgeClass(product.confianzaPrediccion)}`}>
@@ -795,7 +799,7 @@ const SucursalPage: React.FC = () => {
       </main>
 
       <footer className="mt-16 pt-6 border-t border-gray-200 dark:border-gray-800 text-center text-sm text-gray-500 dark:text-gray-400">
-        <p>Sistema de Predicción de Inventario © {new Date().getFullYear()}</p>
+        <p>Sistema de Predicción de Requerimientos © {new Date().getFullYear()}</p>
       </footer>
 
       {/* Modal for feedback */}

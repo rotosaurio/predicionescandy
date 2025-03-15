@@ -1,4 +1,4 @@
-  import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Prediction, NoOrdenadoRazon } from '../types/models';
 import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
 import OrderFeedbackModal from './OrderFeedbackModal';
@@ -89,9 +89,9 @@ export const PredictionTable: React.FC<PredictionTableProps> = ({
           {product.razon_no_ordenado && (
             <span className="ml-1">
               ({product.razon_no_ordenado === 'hay_en_tienda' 
-                ? 'En tienda' 
+                ? 'Hay producto en tienda' 
                 : product.razon_no_ordenado === 'hay_en_cedis' 
-                  ? 'En CEDIS' 
+                  ? 'No hay producto en CEDIS' 
                   : 'Otro'})
             </span>
           )}
@@ -152,18 +152,17 @@ export const PredictionTable: React.FC<PredictionTableProps> = ({
                     <span>Details</span>
                   </button>
                   
-                  {showOrderFeedback && onSaveFeedback && (
+                  {/* Only show feedback button if feedback doesn't exist AND showOrderFeedback is true */}
+                  {showOrderFeedback && onSaveFeedback && producto.ordenado === undefined && (
                     <button 
-                      className="btn btn-sm btn-secondary"
+                      className="px-2 py-1 text-xs font-medium text-white bg-[#0B9ED9] rounded hover:bg-[#0989c0] flex items-center"
                       onClick={() => handleOpenFeedbackModal(producto)}
                       disabled={loading[producto.nombre]}
                     >
                       {loading[producto.nombre] ? (
                         <span className="loading"></span>
                       ) : (
-                        <>
-                          <span>{producto.ordenado !== undefined ? 'Editar' : 'Registrar'}</span>
-                        </>
+                        <span>Motivo de omisión</span>
                       )}
                     </button>
                   )}

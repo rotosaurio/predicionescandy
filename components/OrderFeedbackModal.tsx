@@ -85,30 +85,26 @@ export const OrderFeedbackModal: React.FC<OrderFeedbackModalProps> = ({
               <div className="mb-4">
                 <p className="mb-2 font-medium text-gray-700 dark:text-gray-300">¿Por qué no lo ordenó?</p>
                 <div className="grid grid-cols-1 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setReason('hay_en_tienda')}
-                    className={`px-4 py-2 text-left rounded-md ${
-                      reason === 'hay_en_tienda'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-                    }`}
-                    disabled={loading}
-                  >
-                    Ya hay inventario en tienda
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReason('hay_en_cedis')}
-                    className={`px-4 py-2 text-left rounded-md ${
-                      reason === 'hay_en_cedis'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-                    }`}
-                    disabled={loading}
-                  >
-                    Hay disponibilidad en CEDIS
-                  </button>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      value="hay_en_tienda"
+                      checked={reason === 'hay_en_tienda'}
+                      onChange={() => setReason('hay_en_tienda')}
+                      className="form-radio h-5 w-5 text-[#0B9ED9]"
+                    />
+                    <span className="ml-2">Hay producto en tienda</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      value="hay_en_cedis"
+                      checked={reason === 'hay_en_cedis'}
+                      onChange={() => setReason('hay_en_cedis')}
+                      className="form-radio h-5 w-5 text-[#0B9ED9]"
+                    />
+                    <span className="ml-2">No hay producto en CEDIS</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => setReason('otro')}
@@ -156,10 +152,10 @@ export const OrderFeedbackModal: React.FC<OrderFeedbackModalProps> = ({
             type="button"
             onClick={handleSubmit}
             disabled={loading || ordered === null || (ordered === false && !reason)}
-            className={`px-4 py-2 rounded-md flex items-center ${
+            className={`w-full mt-6 py-2 px-4 rounded-md ${
               loading || ordered === null || (ordered === false && !reason)
-                ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed text-gray-500 dark:text-gray-400'
-                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-[#0B9ED9] hover:bg-[#0989c0] text-white'
             }`}
           >
             {loading && (

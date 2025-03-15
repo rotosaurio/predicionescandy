@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { isUserLoggedIn, getCurrentUser, clearCurrentUser } from "../utils/auth";
+import { getDisplayBranchName } from "../utils/branchMapping";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -84,13 +85,13 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <Image
               className="dark:invert"
-              src="https://nextjs.org/icons/next.svg"
+              src="/LOGO.png"
               alt="Logo"
               width={100}
               height={20}
               priority
             />
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Sistema de Predicción de Inventario</h1>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Sistema de Predicción de Requerimientos</h1>
             </div>
             <div className="flex items-center gap-4">
               <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
@@ -158,13 +159,13 @@ export default function Home() {
                 >
                   <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 hover:shadow-lg transition-shadow">
                     <div className="flex justify-between items-start">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{branch}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{getDisplayBranchName(branch)}</h3>
                       <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-xs font-medium">
                         Sucursal
                       </span>
                     </div>
                     <p className="text-gray-600 dark:text-gray-400 text-sm">
-                      Ver últimas predicciones e inventario recomendado
+                      Ver últimas predicciones de productos  recomendados
                     </p>
                     <div className="mt-4 flex items-center justify-between">
                       <div className="text-indigo-600 dark:text-indigo-400 text-sm font-medium flex items-center">
@@ -172,13 +173,13 @@ export default function Home() {
                         <svg className="ml-1 h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
                         </svg>
-                </div>
-                </div>
+                      </div>
+                    </div>
                   </div>
                 </Link>
               ))}
-              </div>
-              
+            </div>
+            
             {branches.length === 0 && (
               <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
                 <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -195,7 +196,7 @@ export default function Home() {
       </main>
 
       <footer className="mt-16 pt-6 border-t border-gray-200 dark:border-gray-800 text-center text-sm text-gray-500 dark:text-gray-400">
-        <p>Sistema de Predicción de Inventario © {new Date().getFullYear()}</p>
+        <p>Sistema de Predicción de Requerimientos © {new Date().getFullYear()}</p>
       </footer>
     </div>
   );

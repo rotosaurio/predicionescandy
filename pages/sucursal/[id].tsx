@@ -8,6 +8,15 @@ import { isUserLoggedIn, getCurrentUser } from '../../utils/auth';
 import OrderFeedbackModal from '../../components/OrderFeedbackModal';
 import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
 import { getDisplayBranchName } from '../../utils/branchMapping';
+import { useAppStore } from '../../utils/store';
+import StatusIndicator from '../../components/StatusIndicator';
+
+// Interface for inventory data
+interface InventoryData {
+  articulo: string;
+  existencia: number;
+  disponible: boolean;
+}
 
 interface CommonProduct {
   producto: string; // Add this line
@@ -64,6 +73,7 @@ const SucursalPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<CommonProduct | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loadingFeedback, setLoadingFeedback] = useState<{[key: string]: boolean}>({});
+  const [inventory, setInventory] = useState<Record<string, InventoryData>>({});
   
   // Function to toggle product expansion
   const toggleProductExpansion = (productName: string) => {
@@ -280,16 +290,108 @@ const SucursalPage: React.FC = () => {
         });
         
         console.log(`Productos comunes encontrados: ${mergedProducts.length}`);
+        
+        // IMPORTANT CHANGE: Set loading to false here before inventory data fetching
+        setLoading(false);
+        
+        // Fetch inventory data ONLY for common products in the background
+        // This won't block the UI from loading
+        fetchInventoryData(mergedProducts).catch((err) => {
+          console.error("Error fetching inventory data:", err);
+        });
+        
       } catch (err) {
         console.error('Error al cargar datos:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar datos');
-      } finally {
         setLoading(false);
       }
     };
 
     fetchData();
   }, [id, router.isReady]);
+
+  // Fetch inventory data ONLY for common products (those that appear in the final table)
+  const fetchInventoryData = async (commonProducts: CommonProduct[]) => {
+    try {
+      const inventoryData: Record<string, InventoryData> = {};
+      console.log(`Starting inventory fetch for ${commonProducts.length} common products`);
+      
+      // Process products one by one to avoid overwhelming the server
+      for (let i = 0; i < commonProducts.length; i++) {
+        const product = commonProducts[i];
+        try {
+          // Gather all possible identifiers for this product
+          const searchOptions = [
+            product.nombre,             // Main product name
+            product.articulo_id,        // Article ID if available
+            product.nombre?.trim()      // Trimmed name (removes whitespace)
+          ].filter(Boolean); // Remove any undefined or empty values
+          
+          let found = false;
+          
+          for (const searchTerm of searchOptions) {
+            if (found) break;
+            if (!searchTerm || searchTerm.length < 3) continue;
+            
+            console.log(`[${i+1}/${commonProducts.length}] Checking inventory for: "${searchTerm}"`);
+            
+            // Add timeout to prevent hanging requests
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            try {
+              const response = await fetch(
+                `/api/check-inventory?productName=${encodeURIComponent(searchTerm)}`,
+                { signal: controller.signal }
+              );
+              
+              clearTimeout(timeoutId);
+              
+              if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.found) {
+                  // Store the inventory data keyed by the main product name
+                  inventoryData[product.nombre] = data.data;
+                  console.log(`✅ Found inventory for "${product.nombre}": ${data.data.existencia} units`);
+                  found = true;
+                  break;
+                }
+              }
+            } catch (error) {
+              const fetchError = error as Error;
+              if (fetchError.name === 'AbortError') {
+                console.warn(`Inventory request for "${searchTerm}" timed out`);
+              } else {
+                console.error(`Error fetching inventory for "${searchTerm}":`, fetchError);
+              }
+            }
+          }
+          
+          if (!found) {
+            console.log(`❌ No inventory found for "${product.nombre}"`);
+          }
+          
+          // Add a small delay between requests to avoid overwhelming the server
+          // Only if there are many products
+          if (commonProducts.length > 10 && i % 5 === 4) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          
+        } catch (itemError) {
+          console.error(`Error processing inventory for "${product.nombre}":`, itemError);
+          // Continue with the next product even if this one fails
+        }
+      }
+      
+      console.log(`✓ Completed inventory lookup: found data for ${Object.keys(inventoryData).length}/${commonProducts.length} products`);
+      setInventory(inventoryData);
+      
+    } catch (error) {
+      console.error('Error in inventory data processing:', error);
+      // We still set inventory to whatever we've collected so far
+      setInventory({});
+    }
+  };
 
   // Handle feedback submission for common products
   const handleSaveFeedback = async (
@@ -349,6 +451,39 @@ const SucursalPage: React.FC = () => {
       setLoadingFeedback(prev => ({ ...prev, [product.producto]: false }));
       setIsModalOpen(false);
     }
+  };
+
+  // Modified rendering of product items to include inventory data
+  const renderPredictionItem = (prediction: any, index: number) => {
+    const productName = prediction.articulo || prediction.producto;
+    const inventoryItem = inventory[productName];
+    
+    return (
+      <div key={index} className="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 relative overflow-hidden">
+        {/* ...existing product content... */}
+        
+        {/* Add inventory information */}
+        <div className="mt-3 border-t pt-2 dark:border-gray-700">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Inventario CEDIS:</h4>
+          {inventoryItem ? (
+            <div className="flex items-center mt-1">
+              <div className={`w-2 h-2 rounded-full mr-2 ${
+                inventoryItem.disponible ? 'bg-green-500' : 'bg-red-500'
+              }`}></div>
+              <span className="text-sm">
+                {inventoryItem.disponible 
+                  ? `Disponible (${inventoryItem.existencia} unidades)` 
+                  : 'No disponible en CEDIS'}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm text-gray-500 dark:text-gray-400">No encontrado en inventario</span>
+          )}
+        </div>
+        
+        {/* ...other UI elements... */}
+      </div>
+    );
   };
 
   return (
@@ -439,6 +574,8 @@ const SucursalPage: React.FC = () => {
                     {predictionData.commonProducts?.map((product, index) => {
                       const isExpanded = expandedProduct === product.nombre;
                       const differenceClass = getDifferenceClass(product.porcentajeDiferencia || 0);
+                      // Get inventory data for this product
+                      const inventoryItem = inventory[product.nombre];
                       
                       return (
                         <div key={index} className="bg-white dark:bg-gray-800">
@@ -466,7 +603,10 @@ const SucursalPage: React.FC = () => {
                               {/* Only show the button if feedback doesn't exist (ordenado is undefined) */}
                               {product.ordenado === undefined && (
                                 <button
-                                  onClick={() => handleOpenFeedbackModal(product)}
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // Prevent row expansion when clicking button
+                                    handleOpenFeedbackModal(product);
+                                  }}
                                   className="px-2 py-1 text-xs font-medium text-white bg-[#0B9ED9] rounded hover:bg-[#0989c0] flex items-center"
                                 >
                                   <FiInfo className="mr-2" />
@@ -474,8 +614,24 @@ const SucursalPage: React.FC = () => {
                                 </button>
                               )}
                             </div>
-                            <div className="flex items-center">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mr-2 ${getLevelBadgeClass(product.confianzaPrediccion)}`}>
+                            <div className="flex items-center gap-2">
+                              {/* Add inventory status before confidence level - UPDATED TEXT */}
+                              {inventoryItem ? (
+                                <div className="flex items-center bg-gray-50 dark:bg-gray-700 rounded-lg px-2 py-1">
+                                  <div className={`w-2 h-2 rounded-full ${
+                                    inventoryItem.disponible ? 'bg-green-500' : 'bg-red-500'
+                                  }`}></div>
+                                  <span className="ml-1.5 text-xs font-medium text-gray-700 dark:text-gray-300">
+                                    {inventoryItem.existencia > 0 ? `${inventoryItem.existencia} pz en CEDIS` : 'No disponible en CEDIS'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700 rounded-lg px-2 py-1">
+                                  Sin datos CEDIS
+                                </div>
+                              )}
+                              
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getLevelBadgeClass(product.confianzaPrediccion)}`}>
                                 {getConfidenceLevel(product.confianzaPrediccion)}
                               </span>
                               {renderOrderStatus(product)}
@@ -493,6 +649,40 @@ const SucursalPage: React.FC = () => {
                           {/* Detalles expandibles */}
                           {isExpanded && (
                             <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
+                              {/* Add Inventory CEDIS section - this is the new section */}
+                              <div className="mb-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
+                                  Inventario CEDIS
+                                </h4>
+                                
+                                {inventoryItem ? (
+                                  <div className="flex items-center">
+                                    <div className={`w-3 h-3 rounded-full mr-3 ${
+                                      inventoryItem.disponible ? 'bg-green-500' : 'bg-red-500'
+                                    }`}></div>
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                        {inventoryItem.disponible 
+                                          ? `Disponible (${inventoryItem.existencia} piezas en CEDIS)` 
+                                          : 'No disponible en CEDIS'}
+                                      </span>
+                                      {inventoryItem.disponible && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                          {inventoryItem.existencia >= (product.cantidadPromedio || 0)
+                                            ? 'Hay suficiente inventario para este pedido'
+                                            : 'Inventario insuficiente para la cantidad recomendada'}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                                    No se encontró información de inventario para este producto en CEDIS
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Existing sections */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {/* Columna de predicción */}
                                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">

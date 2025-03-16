@@ -398,6 +398,12 @@ export default function AdminPanel() {
               >
                 ← Volver al inicio
               </Link>
+              <Link 
+                href="/admin/inventario" 
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+              >
+                Carga de Inventario CEDIS
+              </Link>
             </div>
           </div>
         </div>

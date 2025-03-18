@@ -376,7 +376,7 @@ export default function AdminPanel() {
             <div className="flex items-center gap-4">
               <Image
                 className="dark:invert"
-                src="https://nextjs.org/icons/next.svg"
+                src="/LOGO.png"
                 alt="Logo"
                 width={100}
                 height={20}

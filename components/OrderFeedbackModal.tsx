@@ -99,8 +99,8 @@ export const OrderFeedbackModal: React.FC<OrderFeedbackModalProps> = ({
                     <input
                       type="radio"
                       value="hay_en_cedis"
-                      checked={reason === 'hay_en_cedis'}
-                      onChange={() => setReason('hay_en_cedis')}
+                      checked={reason === 'no_hay_en_cedis'}
+                      onChange={() => setReason('no_hay_en_cedis')}
                       className="form-radio h-5 w-5 text-[#0B9ED9]"
                     />
                     <span className="ml-2">No hay producto en CEDIS</span>

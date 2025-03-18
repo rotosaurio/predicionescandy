@@ -79,6 +79,12 @@ export default function AdvancedPanel() {
   });
   const [observations, setObservations] = useState<FeedbackProduct[]>([]);
   const [feedbackData, setFeedbackData] = useState<FeedbackData[]>([]);
+  const [filterSucursal, setFilterSucursal] = useState<string>('');
+  const [filterFecha, setFilterFecha] = useState<string>('');
+  const [filterProducto, setFilterProducto] = useState<string>('');
+  const [uniqueSucursales, setUniqueSucursales] = useState<string[]>([]);
+  const [uniqueFechas, setUniqueFechas] = useState<string[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -417,6 +423,46 @@ export default function AdvancedPanel() {
     return isSameDay(predictionDate, today);
   };
 
+  const getFilteredFeedbackData = () => {
+    return feedbackData.filter(data => {
+      // Filter by branch/sucursal
+      if (filterSucursal && data.sucursal !== filterSucursal) {
+        return false;
+      }
+      
+      // Filter by date/fecha
+      if (filterFecha && data.fecha !== filterFecha) {
+        return false;
+      }
+      
+      // Filter by product name
+      if (filterProducto) {
+        const lowercaseFilter = filterProducto.toLowerCase();
+        // Check if any product in feedback matches the filter
+        const hasMatchingProduct = data.feedback.some(item => 
+          item.producto && item.producto.toLowerCase().includes(lowercaseFilter)
+        );
+        if (!hasMatchingProduct) {
+          return false;
+        }
+      }
+      
+      return true;
+    }).map(data => {
+      // If filtering by product, also filter the feedback array
+      if (filterProducto) {
+        const lowercaseFilter = filterProducto.toLowerCase();
+        return {
+          ...data,
+          feedback: data.feedback.filter(item => 
+            item.producto && item.producto.toLowerCase().includes(lowercaseFilter)
+          )
+        };
+      }
+      return data;
+    });
+  };
+
   const loadFeedbackData = async () => {
     try {
       console.log("Cargando feedback desde MongoDB...");
@@ -434,33 +480,55 @@ export default function AdvancedPanel() {
         // Agrupar feedback por sucursal y fecha
         const groupedData: FeedbackData[] = [];
         const feedbackMap = new Map<string, Map<string, FeedbackProduct[]>>();
+        const sucursalesSet = new Set<string>();
+        const fechasSet = new Set<string>();
+        
         data.feedback.forEach((item: FeedbackProduct) => {
           const sucursal = item.sucursal || "Desconocida";
           const fecha = item.fecha || "Desconocida";
+          
+          // Add to sets for filters
+          sucursalesSet.add(sucursal);
+          fechasSet.add(fecha);
+          
           if (!feedbackMap.has(sucursal)) {
             feedbackMap.set(sucursal, new Map<string, FeedbackProduct[]>());
           }
           const sucursalMap = feedbackMap.get(sucursal)!;
+          
           if (!sucursalMap.has(fecha)) {
             sucursalMap.set(fecha, []);
           }
           sucursalMap.get(fecha)!.push(item);
         });
+        
         feedbackMap.forEach((fechaMap, sucursal) => {
           fechaMap.forEach((feedback, fecha) => {
             groupedData.push({ sucursal, fecha, feedback });
           });
         });
+        
         setFeedbackData(groupedData);
+        setUniqueSucursales(Array.from(sucursalesSet).sort());
+        setUniqueFechas(Array.from(fechasSet).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()));
         console.log("Datos de feedback cargados correctamente:", groupedData);
       } else {
         console.log("No se encontró feedback en la base de datos");
         setFeedbackData([]);
+        setUniqueSucursales([]);
+        setUniqueFechas([]);
       }
     } catch (err) {
       console.error("Error al cargar el feedback:", err);
       setError("Error al cargar el feedback");
     }
+  };
+
+  const toggleGroupExpansion = (groupId: string) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId]
+    }));
   };
 
   const filteredData = filterHistoricalData();
@@ -552,95 +620,77 @@ export default function AdvancedPanel() {
             </div>
             
             {/* Filtros y controles */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Filtros</h2>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                    <label htmlFor="branch" className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Sucursal
-                    </label>
-                    <select
-                      id="branch"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-purple-500 focus:ring-purple-500"
-                      value={selectedBranch}
-                      onChange={(e) => setSelectedBranch(e.target.value)}
-                    >
-                      <option value="all">Todas las Sucursales</option>
-                      {branches.map((branch) => (
-                        <option key={branch} value={branch}>
-                          {branch}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="dateFilter" className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Periodo
-                    </label>
-                    <select
-                      id="dateFilter"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-purple-500 focus:ring-purple-500"
-                      value={dateFilter}
-                      onChange={(e) => setDateFilter(e.target.value as any)}
-                    >
-                      <option value="all">Todo el historial</option>
-                      <option value="this-month">Mes actual</option>
-                      <option value="custom">Periodo personalizado</option>
-                    </select>
-                  </div>
-                  
-                  {dateFilter === "custom" && (
-                    <>
-                      <div>
-                        <label htmlFor="startDate" className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Fecha inicio
-                        </label>
-                        <input
-                          id="startDate"
-                          type="date"
-                          className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-purple-500 focus:ring-purple-500"
-                          value={startDate}
-                          onChange={(e) => setStartDate(e.target.value)}
-                        />
-                      </div>
-                      
-                      <div>
-                        <label htmlFor="endDate" className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Fecha fin
-                        </label>
-                        <input
-                          id="endDate"
-                          type="date"
-                          className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-purple-500 focus:ring-purple-500"
-                          value={endDate}
-                          onChange={(e) => setEndDate(e.target.value)}
-                        />
-                      </div>
-                    </>
-                  )}
-                  
-                  <div>
-                    <label htmlFor="sortBy" className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Ordenar por
-                    </label>
-                    <select
-                      id="sortBy"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-purple-500 focus:ring-purple-500"
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as any)}
-                    >
-                      <option value="date-desc">Fecha (más reciente)</option>
-                      <option value="date-asc">Fecha (más antigua)</option>
-                      <option value="branch">Sucursal (A-Z)</option>
-                      <option value="products">Número de productos</option>
-                    </select>
-                  </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Filtros</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Filtro por sucursal */}
+                <div>
+                  <label htmlFor="filterSucursal" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Sucursal
+                  </label>
+                  <select
+                    id="filterSucursal"
+                    value={filterSucursal}
+                    onChange={(e) => setFilterSucursal(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Todas las sucursales</option>
+                    {uniqueSucursales.map((sucursal) => (
+                      <option key={sucursal} value={sucursal}>{sucursal}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Filtro por fecha */}
+                <div>
+                  <label htmlFor="filterFecha" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Fecha
+                  </label>
+                  <select
+                    id="filterFecha"
+                    value={filterFecha}
+                    onChange={(e) => setFilterFecha(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Todas las fechas</option>
+                    {uniqueFechas.map((fecha) => (
+                      <option key={fecha} value={fecha}>{fecha}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Filtro por producto */}
+                <div>
+                  <label htmlFor="filterProducto" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Producto
+                  </label>
+                  <input
+                    type="text"
+                    id="filterProducto"
+                    value={filterProducto}
+                    onChange={(e) => setFilterProducto(e.target.value)}
+                    placeholder="Filtrar por nombre de producto"
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                  />
                 </div>
               </div>
+              
+              {/* Clear filters button */}
+              {(filterSucursal || filterFecha || filterProducto) && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => {
+                      setFilterSucursal('');
+                      setFilterFecha('');
+                      setFilterProducto('');
+                    }}
+                    className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                  >
+                    Limpiar todos los filtros
+                  </button>
+                </div>
+              )}
             </div>
             
             {/* Estadísticas por Sucursal */}
@@ -798,24 +848,85 @@ export default function AdvancedPanel() {
             </div>
 
             {/* Tabla de Observaciones */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Feedback por Sucursal y Fecha</h2>
-              </div>
-              <div className="p-6">
-                {feedbackData.length > 0 ? (
-                  feedbackData.map((data, index) => (
-                    <div key={index} className="mb-8">
-                      <h3 className="text-md font-semibold text-gray-900 dark:text-white">
-                        Sucursal: {data.sucursal} - Fecha: {data.fecha}
-                      </h3>
-                      <ObservationsTable observations={data.feedback} />
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Feedback por Sucursal y Fecha</h2>
+              
+              {/* Filter summary and stats */}
+              <div className="mt-2 mb-6 text-sm text-gray-500 dark:text-gray-400">
+                {(() => {
+                  const filteredData = getFilteredFeedbackData();
+                  const totalObservations = filteredData.reduce((acc, curr) => acc + curr.feedback.length, 0);
+                  
+                  return (
+                    <div>
+                      <p>
+                        {filteredData.length} {filteredData.length === 1 ? 'grupo' : 'grupos'} de feedback con {totalObservations} {totalObservations === 1 ? 'observación' : 'observaciones'}
+                        {(filterSucursal || filterFecha || filterProducto) ? " coinciden con los filtros aplicados" : ""}
+                      </p>
+                      {(filterSucursal || filterFecha || filterProducto) && (
+                        <div className="mt-1">
+                          <span className="font-medium">Filtros activos:</span>
+                          {filterSucursal && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Sucursal: {filterSucursal}</span>}
+                          {filterFecha && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Fecha: {filterFecha}</span>}
+                          {filterProducto && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">Producto: {filterProducto}</span>}
+                        </div>
+                      )}
                     </div>
-                  ))
+                  );
+                })()}
+              </div>
+              
+              {/* List of feedback groups */}
+              <div className="space-y-2">
+                {getFilteredFeedbackData().length > 0 ? (
+                  getFilteredFeedbackData().map((data, index) => {
+                    const groupId = `${data.sucursal}-${data.fecha}-${index}`;
+                    const isExpanded = !!expandedGroups[groupId];
+                    
+                    return (
+                      <div key={index} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        {/* Clickable header */}
+                        <div 
+                          className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50"
+                          onClick={() => toggleGroupExpansion(groupId)}
+                        >
+                          <h3 className="text-md font-semibold text-gray-900 dark:text-white flex items-center">
+                            <svg 
+                              className={`h-5 w-5 mr-1.5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                              xmlns="http://www.w3.org/2000/svg" 
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                            >
+                              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                            </svg>
+                            Sucursal: {data.sucursal} - Fecha: {data.fecha}
+                          </h3>
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 py-0.5 px-2 rounded-full">
+                            {data.feedback.length} {data.feedback.length === 1 ? 'observación' : 'observaciones'}
+                          </span>
+                        </div>
+                        
+                        {/* Expandable content */}
+                        {isExpanded && (
+                          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                            <ObservationsTable observations={data.feedback} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 ) : (
-                  <p className="text-center py-4 text-gray-500 dark:text-gray-400">
-                    No hay feedback disponible.
-                  </p>
+                  <div className="text-center py-8">
+                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M9 16h.01M15 16h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay feedback disponible</h3>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      {feedbackData.length > 0 
+                        ? "No se encontraron datos que coincidan con los filtros seleccionados." 
+                        : "No hay feedback disponible en el sistema."}
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
@@ -824,7 +935,7 @@ export default function AdvancedPanel() {
       </main>
 
       <footer className="mt-16 pt-6 border-t border-gray-200 dark:border-gray-800 text-center text-sm text-gray-500 dark:text-gray-400">
-        <p>Sistema de Predicción de Inventario © {new Date().getFullYear()}</p>
+        <p>Sistema de Predicción de Requerimienos Candy Mart © {new Date().getFullYear()}</p>
       </footer>
     </div>
   );

@@ -1,7 +1,7 @@
 import '../styles/globals.css';
 import type { AppProps } from 'next/app';
 import { useEffect } from 'react';
-import { RouteGuard } from '../components/RouteGuard';
+import RouteGuard from '../components/RouteGuard';
 
 function MyApp({ Component, pageProps }: AppProps) {
   // Global error handler

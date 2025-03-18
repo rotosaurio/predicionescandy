@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { isUserLoggedIn, getCurrentUser, isRouteAuthorized } from '../utils/auth';
+import { isUserLoggedIn, getCurrentUser, checkUserAccess } from '../utils/auth';
 
-type RouteGuardProps = {
+interface RouteGuardProps {
   children: React.ReactNode;
-};
+}
 
-export const RouteGuard = ({ children }: RouteGuardProps) => {
+export default function RouteGuard({ children }: RouteGuardProps) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
     // Auth check function that verifies if route can be accessed
-    const authCheck = (url: string) => {
+    const authCheck = async (url: string) => {
       const publicPaths = ['/login'];
       const path = url.split('?')[0];
       
@@ -21,53 +21,53 @@ export const RouteGuard = ({ children }: RouteGuardProps) => {
         setAuthorized(true);
         return;
       }
-      
-      const user = getCurrentUser();
-      const loggedIn = isUserLoggedIn();
-      
-      if (!loggedIn) {
+
+      const isLoggedIn = await isUserLoggedIn();
+      if (!isLoggedIn) {
         setAuthorized(false);
         router.push({
           pathname: '/login',
-          query: { redirect: router.pathname }
+          query: { returnUrl: router.asPath }
         });
         return;
       }
-      
+
       // Check if the user has permission to access this route
-      if (user && isRouteAuthorized(user, path)) {
+      const user = getCurrentUser();
+      const accessCheck = checkUserAccess(user, path);
+      
+      if (accessCheck.authorized) {
         setAuthorized(true);
       } else {
         setAuthorized(false);
         
-        // Redirect based on user role
-        if (user && user.role === 'normal' && user.sucursal) {
-          router.push(`/sucursal/${encodeURIComponent(user.sucursal)}`);
-        } else if (user && user.role === 'advanced') {
-          router.push('/enrique');
-        } else if (user && user.role === 'admin') {
-          router.push('/admin');
-        } else {
+        // Add validation to ensure we don't navigate to invalid routes
+        const redirectTo = accessCheck.redirectTo || '/login';
+        
+        // Check if the redirect path contains any route parameters that need to be replaced
+        if (redirectTo.includes('[') && redirectTo.includes(']')) {
+          console.error("Invalid redirect path detected:", redirectTo);
           router.push('/login');
+        } else {
+          router.push(redirectTo);
         }
       }
     };
 
-    // Wait until router is ready before checking auth
-    if (router.isReady) {
-      // Initial auth check
-      authCheck(router.asPath);
+    // Run auth check on initial load
+    authCheck(router.asPath);
 
-      // Set up event listener for route changes
-      const handleRouteChange = (url: string) => authCheck(url);
-      router.events.on('routeChangeComplete', handleRouteChange);
+    // Run auth check on route change
+    const hideContent = () => setAuthorized(false);
+    router.events.on('routeChangeStart', hideContent);
 
-      // Clean up event listener
-      return () => {
-        router.events.off('routeChangeComplete', handleRouteChange);
-      };
-    }
-  }, [router, router.isReady]);
+    router.events.on('routeChangeComplete', authCheck);
 
-  return authorized ? <>{children}</> : null;
-};
+    return () => {
+      router.events.off('routeChangeStart', hideContent);
+      router.events.off('routeChangeComplete', authCheck);
+    };
+  }, [router]);
+
+  return authorized ? <>{children}</> : <div className="flex justify-center items-center h-screen">Autenticando...</div>;
+}

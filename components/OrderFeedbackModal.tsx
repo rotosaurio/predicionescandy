@@ -24,7 +24,7 @@ export const OrderFeedbackModal: React.FC<OrderFeedbackModalProps> = ({
 
   const handleSubmit = () => {
     if (ordered === null) return;
-    
+
     if (ordered) {
       onSubmit(product, true);
     } else {

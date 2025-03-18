@@ -210,7 +210,13 @@ const SucursalPage: React.FC = () => {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
       const data = await response.json();
-      return data.feedback;
+
+      // Filtrar feedback para la fecha actual de la predicción
+      const filteredFeedback = data.feedback.filter(
+        (fb: { producto: string; fecha: string }) => predictionData?.date && fb.fecha === predictionData.date
+      );
+
+      return filteredFeedback;
     } catch (error) {
       console.error('Error fetching feedback data:', error);
       return [];

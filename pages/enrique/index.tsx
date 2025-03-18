@@ -541,7 +541,7 @@ export default function AdvancedPanel() {
             <div className="flex items-center gap-4">
               <Image
                 className="dark:invert"
-                src="https://nextjs.org/icons/next.svg"
+                src="/LOGO.png"
                 alt="Logo"
                 width={100}
                 height={20}
@@ -617,80 +617,6 @@ export default function AdvancedPanel() {
                   </div>
                 </div>
               </div>
-            </div>
-            
-            {/* Filtros y controles */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Filtros</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Filtro por sucursal */}
-                <div>
-                  <label htmlFor="filterSucursal" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Sucursal
-                  </label>
-                  <select
-                    id="filterSucursal"
-                    value={filterSucursal}
-                    onChange={(e) => setFilterSucursal(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">Todas las sucursales</option>
-                    {uniqueSucursales.map((sucursal) => (
-                      <option key={sucursal} value={sucursal}>{sucursal}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                {/* Filtro por fecha */}
-                <div>
-                  <label htmlFor="filterFecha" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Fecha
-                  </label>
-                  <select
-                    id="filterFecha"
-                    value={filterFecha}
-                    onChange={(e) => setFilterFecha(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">Todas las fechas</option>
-                    {uniqueFechas.map((fecha) => (
-                      <option key={fecha} value={fecha}>{fecha}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                {/* Filtro por producto */}
-                <div>
-                  <label htmlFor="filterProducto" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Producto
-                  </label>
-                  <input
-                    type="text"
-                    id="filterProducto"
-                    value={filterProducto}
-                    onChange={(e) => setFilterProducto(e.target.value)}
-                    placeholder="Filtrar por nombre de producto"
-                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
-                  />
-                </div>
-              </div>
-              
-              {/* Clear filters button */}
-              {(filterSucursal || filterFecha || filterProducto) && (
-                <div className="mt-3">
-                  <button
-                    onClick={() => {
-                      setFilterSucursal('');
-                      setFilterFecha('');
-                      setFilterProducto('');
-                    }}
-                    className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
-                  >
-                    Limpiar todos los filtros
-                  </button>
-                </div>
-              )}
             </div>
             
             {/* Estadísticas por Sucursal */}
@@ -843,6 +769,80 @@ export default function AdvancedPanel() {
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     No se encontraron predicciones que coincidan con los filtros aplicados.
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* Filtros y controles - MOVED HERE */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Filtros de Feedback</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Filtro por sucursal */}
+                <div>
+                  <label htmlFor="filterSucursal" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Sucursal
+                  </label>
+                  <select
+                    id="filterSucursal"
+                    value={filterSucursal}
+                    onChange={(e) => setFilterSucursal(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Todas las sucursales</option>
+                    {uniqueSucursales.map((sucursal) => (
+                      <option key={sucursal} value={sucursal}>{sucursal}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Filtro por fecha */}
+                <div>
+                  <label htmlFor="filterFecha" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Fecha
+                  </label>
+                  <select
+                    id="filterFecha"
+                    value={filterFecha}
+                    onChange={(e) => setFilterFecha(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Todas las fechas</option>
+                    {uniqueFechas.map((fecha) => (
+                      <option key={fecha} value={fecha}>{fecha}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Filtro por producto */}
+                <div>
+                  <label htmlFor="filterProducto" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Producto
+                  </label>
+                  <input
+                    type="text"
+                    id="filterProducto"
+                    value={filterProducto}
+                    onChange={(e) => setFilterProducto(e.target.value)}
+                    placeholder="Filtrar por nombre de producto"
+                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+              
+              {/* Clear filters button */}
+              {(filterSucursal || filterFecha || filterProducto) && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => {
+                      setFilterSucursal('');
+                      setFilterFecha('');
+                      setFilterProducto('');
+                    }}
+                    className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                  >
+                    Limpiar todos los filtros
+                  </button>
                 </div>
               )}
             </div>

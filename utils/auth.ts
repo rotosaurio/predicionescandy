@@ -114,6 +114,12 @@ export function checkUserAccess(user: Partial<User> | null, pathname: string): {
   
   // Check specific paths for advanced users
   if (user.role === 'advanced') {
+    // If at the root page, redirect to advanced panel
+    if (pathname === '/') {
+      return { authorized: false, redirectTo: '/enrique' };
+    }
+    
+    // Block access to admin and other restricted areas
     if (pathname.startsWith('/admin') || 
         pathname === '/recomendaciones' || 
         pathname === '/debug') {
@@ -122,12 +128,11 @@ export function checkUserAccess(user: Partial<User> | null, pathname: string): {
     
     // Allow access to advanced panel and sucursal pages
     if (pathname.startsWith('/enrique') || 
-        pathname.startsWith('/sucursal/') || 
-        pathname === '/') {
+        pathname.startsWith('/sucursal/')) {
       return { authorized: true };
     }
     
-    // Default redirect for advanced users
+    // Default redirect for advanced users - always to advanced panel
     return { authorized: false, redirectTo: '/enrique' };
   }
   

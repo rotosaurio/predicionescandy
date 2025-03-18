@@ -90,7 +90,7 @@ export const PredictionTable: React.FC<PredictionTableProps> = ({
             <span className="ml-1">
               ({product.razon_no_ordenado === 'hay_en_tienda' 
                 ? 'Hay producto en tienda' 
-                : product.razon_no_ordenado === 'hay_en_cedis' 
+                : product.razon_no_ordenado === 'no_hay_en_cedis' 
                   ? 'No hay producto en CEDIS' 
                   : 'Otro'})
             </span>

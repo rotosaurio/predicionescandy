@@ -19,7 +19,13 @@ export default function Login() {
       if (user) {
         setCurrentUser(user);
         
-        // Determine redirect path
+        // Always redirect advanced users to their panel
+        if (user.role === 'advanced') {
+          router.push('/enrique');
+          return;
+        }
+        
+        // Determine redirect path for other user types
         let returnUrl = router.query.returnUrl as string || '/';
         
         // Add validation for sucursal paths

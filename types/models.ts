@@ -11,7 +11,7 @@ export interface Prediction {
   comentario_no_ordenado?: string;
 }
 
-export type NoOrdenadoRazon = "hay_en_tienda" | "hay_en_cedis" | "otro";
+export type NoOrdenadoRazon = "hay_en_tienda" | "no_hay_en_cedis" | "otro";
 
 export interface OrderFeedback {
   predictionId: string;

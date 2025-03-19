@@ -373,6 +373,12 @@ async function ensureCollectionExists(db: any, collectionName: string): Promise<
   }
 }
 
+// Function to check if inventory exists for a specific date
+async function hasInventoryForDate(db: any, date: string): Promise<boolean> {
+  const inventoryMetadata = await db.collection('inventariocedis_metadata').findOne({ inventoryDate: date });
+  return !!inventoryMetadata;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Soportar tanto POST (manual) como GET (cron)
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -412,6 +418,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Fecha actual para el inicio de las predicciones semanales
     const today = new Date();
     const fechaActual = format(today, 'dd/MM/yyyy');
+
+    // Check if inventory exists for the current date
+    const inventoryExists = await hasInventoryForDate(db, fechaActual);
+    if (!inventoryExists) {
+      return res.status(400).json({
+        success: false,
+        message: `No hay inventario disponible para la fecha ${fechaActual}. Por favor, suba un inventario antes de generar predicciones.`,
+      });
+    }
     
     // Calcular próxima actualización (siguiente lunes 8 AM)
     let nextUpdateDate = nextMonday(today);
@@ -579,4 +594,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       error: error instanceof Error ? error.message : 'Error desconocido'
     });
   }
-} 
+}

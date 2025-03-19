@@ -97,6 +97,10 @@ export default function AdminPanel() {
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
   const [retrainParams, setRetrainParams] = useState({ epochs: 50, batch_size: 128, learning_rate: 0.001 });
 
+  const [datasets, setDatasets] = useState<string[]>([]);
+  const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
+  const [trainingStatus, setTrainingStatus] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -363,6 +367,53 @@ export default function AdminPanel() {
     try {
       const response = await axios.post('/api/retrain-model', retrainParams);
       console.log('Model retraining started:', response.data);
+    } catch (error) {
+      console.error('Error retraining model:', error);
+    }
+  };
+
+  // Fetch datasets
+  const fetchDatasets = async () => {
+    try {
+      const response = await axios.get('/api/datasets');
+      setDatasets(response.data.datasets || []);
+    } catch (error) {
+      console.error('Error fetching datasets:', error);
+    }
+  };
+
+  // Delete a dataset
+  const deleteDataset = async (datasetName: string) => {
+    try {
+      await axios.delete(`/api/delete_dataset?dataset_name=${datasetName}`);
+      setDatasets(datasets.filter((name) => name !== datasetName));
+    } catch (error) {
+      console.error('Error deleting dataset:', error);
+    }
+  };
+
+  // Check training status
+  const fetchTrainingStatus = async () => {
+    try {
+      const response = await axios.get('/api/training-status');
+      setTrainingStatus(response.data.status || 'Desconocido');
+    } catch (error) {
+      console.error('Error fetching training status:', error);
+    }
+  };
+
+  // Retrain model
+  const retrainModel = async () => {
+    try {
+      const body = {
+        epochs: retrainParams.epochs,
+        batch_size: retrainParams.batch_size,
+        learning_rate: retrainParams.learning_rate,
+        use_all_datasets: selectedDatasets.length === 0,
+        dataset_ids: selectedDatasets,
+      };
+      await axios.post('/api/retrain-model', body);
+      console.log('Model retraining started');
     } catch (error) {
       console.error('Error retraining model:', error);
     }
@@ -891,6 +942,74 @@ export default function AdminPanel() {
                   </div>
                   <button
                     onClick={handleRetrainModel}
+                    className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Iniciar Reentrenamiento
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Gestión de Datasets</h2>
+                <button
+                  onClick={fetchDatasets}
+                  className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Cargar Datasets
+                </button>
+                <ul className="mt-4 space-y-2">
+                  {datasets.map((dataset) => (
+                    <li key={dataset} className="flex justify-between items-center">
+                      <span className="text-gray-700 dark:text-gray-300">{dataset}</span>
+                      <button
+                        onClick={() => deleteDataset(dataset)}
+                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+                      >
+                        Eliminar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Estado de Entrenamiento</h2>
+                <button
+                  onClick={fetchTrainingStatus}
+                  className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Verificar Estado
+                </button>
+                {trainingStatus && (
+                  <p className="mt-4 text-gray-700 dark:text-gray-300">Estado actual: {trainingStatus}</p>
+                )}
+              </section>
+
+              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Reentrenar Modelo</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="selectDatasets" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Seleccionar Datasets (opcional)
+                    </label>
+                    <select
+                      id="selectDatasets"
+                      multiple
+                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      value={selectedDatasets}
+                      onChange={(e) =>
+                        setSelectedDatasets(Array.from(e.target.selectedOptions, (option) => option.value))
+                      }
+                    >
+                      {datasets.map((dataset) => (
+                        <option key={dataset} value={dataset}>
+                          {dataset}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={retrainModel}
                     className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     Iniciar Reentrenamiento

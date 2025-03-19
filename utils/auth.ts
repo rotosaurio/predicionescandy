@@ -74,6 +74,40 @@ export function canAccessAdminPanel(user: User): boolean {
   return user.role === 'admin';
 }
 
+// Función para verificar si un usuario puede acceder a una ruta específica
+export function canUserAccessRoute(user: User, path: string): boolean {
+  // Eliminar parámetros de consulta para la comparación de rutas
+  const cleanPath = path.split('?')[0];
+  
+  // Administradores pueden acceder a todas las rutas
+  if (user.role === 'admin') return true;
+  
+  // Advanced users can only access advanced panel, branch pages, and prediction details
+  if (user.role === 'advanced') {
+    // Allow access to advanced panel
+    if (cleanPath === '/enrique') return true;
+    
+    // Allow access to branch pages
+    if (cleanPath.startsWith('/sucursal/')) return true;
+    
+    // Allow access to prediction details page
+    if (cleanPath === '/predictions/details') return true;
+    
+    // Deny access to other routes
+    return false;
+  }
+  
+  // Normal users can only access their assigned branch
+  if (user.role === 'normal') {
+    // They can access their assigned sucursal page
+    if (user.sucursal && cleanPath === `/sucursal/${encodeURIComponent(user.sucursal)}`) return true;
+    // They can access the home page
+    if (cleanPath === '/') return true;
+  }
+  
+  return false;
+}
+
 // Add a new function to check if a user can access a specific path
 export function canAccessPath(user: User, pathname: string): boolean {
   // Allow all users to access authentication pages
@@ -82,11 +116,12 @@ export function canAccessPath(user: User, pathname: string): boolean {
   // Admin can access everything
   if (user.role === 'admin') return true;
   
-  // Advanced users can only access advanced panel and branch pages
+  // Advanced users can only access advanced panel, branch pages, and prediction details
   if (user.role === 'advanced') {
     return pathname === '/enrique' || 
            pathname.startsWith('/enrique/') ||
            pathname.startsWith('/sucursal/') ||
+           pathname.startsWith('/predictions/details') ||
            pathname === '/';
   }
   
@@ -126,9 +161,10 @@ export function checkUserAccess(user: Partial<User> | null, pathname: string): {
       return { authorized: false, redirectTo: '/enrique' };
     }
     
-    // Allow access to advanced panel and sucursal pages
+    // Allow access to advanced panel, prediction details and sucursal pages
     if (pathname.startsWith('/enrique') || 
-        pathname.startsWith('/sucursal/')) {
+        pathname.startsWith('/sucursal/') ||
+        pathname.startsWith('/predictions/details')) {
       return { authorized: true };
     }
     

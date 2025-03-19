@@ -10,6 +10,7 @@ import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
 import { getDisplayBranchName } from '../../utils/branchMapping';
 import { useAppStore } from '../../utils/store';
 import StatusIndicator from '../../components/StatusIndicator';
+import { getCommonProducts } from '../../utils/helpers'; // Import from helpers
 
 // Interface for inventory data
 interface InventoryData {
@@ -19,7 +20,7 @@ interface InventoryData {
 }
 
 interface CommonProduct {
-  producto: string; // Add this line
+  producto: string;
   nombre: string;
   cantidadPredicha: number;
   cantidadSugerida: number;
@@ -31,7 +32,6 @@ interface CommonProduct {
   tipo?: string;
   motivo?: string;
   articulo_id?: string;
-  // Campos adicionales de recomendación
   min_cantidad?: number;
   max_cantidad?: number;
   tipo_recomendacion?: string;
@@ -46,7 +46,6 @@ interface CommonProduct {
   ultima_fecha_pedido?: string;
   dias_desde_ultimo_pedido?: number;
   cantidad_ultimo_pedido?: number;
-  // Feedback fields
   ordenado?: boolean;
   razon_no_ordenado?: NoOrdenadoRazon;
   comentario_no_ordenado?: string;
@@ -61,9 +60,18 @@ interface PredictionData {
   commonProducts: CommonProduct[];
 }
 
-const SucursalPage: React.FC = () => {
+interface HistoricalPrediction {
+  _id: string;
+  timestamp: string;
+  branch: string;
+  date: string;
+  predictions: Prediction[];
+  recommendations: any[];
+}
+
+const HistoricalPredictionPage: React.FC = () => {
   const router = useRouter();
-  const { id } = router.query;
+  const { id, timestamp } = router.query;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [branchName, setBranchName] = useState('');
@@ -83,7 +91,7 @@ const SucursalPage: React.FC = () => {
       setExpandedProduct(productName);
     }
   };
-  
+
   // Helper functions for styling
   const getConfidenceClass = (confidence: number) => {
     if (confidence >= 80) return 'text-green-600 dark:text-green-400';
@@ -118,7 +126,7 @@ const SucursalPage: React.FC = () => {
     setSelectedProduct(product);
     setIsModalOpen(true);
   };
-
+  
   // Helper function to render order status
   const renderOrderStatus = (product: CommonProduct) => {
     if (product.ordenado === true) {
@@ -146,63 +154,6 @@ const SucursalPage: React.FC = () => {
     return null;
   };
 
-  // Function to get common products between predictions and recommendations
-  const getCommonProducts = (predictions: Prediction[], recommendations: any[]): CommonProduct[] => {
-    const result: CommonProduct[] = [];
-    
-    // Create maps for faster lookup
-    const predMap = new Map(predictions.map(p => [p.nombre.toLowerCase(), p]));
-    const recMap = new Map(recommendations.map(r => [r.nombre.toLowerCase(), r]));
-    
-    // Find common products
-    for (const pred of predictions) {
-      const predName = pred.nombre.toLowerCase();
-      if (recMap.has(predName)) {
-        const rec = recMap.get(predName)!;
-        
-        // Calculate differences
-        const predQty = pred.cantidad;
-        const recQty = rec.cantidad_sugerida;
-        const difference = recQty - predQty;
-        const percentDiff = predQty > 0 ? (difference / predQty) * 100 : 0;
-        
-        // Create common product object with feedback fields from prediction
-        result.push({
-          producto: pred.nombre,
-          nombre: pred.nombre,
-          cantidadPredicha: predQty,
-          cantidadSugerida: recQty,
-          cantidadPromedio: Math.round((predQty + recQty) / 2),
-          confianzaPrediccion: pred.confianza,
-          confianzaRecomendacion: rec.confianza,
-          diferenciaCantidad: difference,
-          porcentajeDiferencia: percentDiff,
-          tipo: rec.tipo,
-          motivo: rec.motivo,
-          // Additional fields from recommendation
-          min_cantidad: rec.min_cantidad,
-          max_cantidad: rec.max_cantidad,
-          tipo_recomendacion: rec.tipo_recomendacion,
-          frecuencia_otras: rec.frecuencia_otras,
-          num_sucursales: rec.num_sucursales,
-          nivel_recomendacion: rec.nivel_recomendacion,
-          pedidos_recientes_otras: rec.pedidos_recientes_otras,
-          ultima_fecha_pedido: rec.ultima_fecha_pedido,
-          dias_desde_ultimo_pedido: rec.dias_desde_ultimo_pedido,
-          cantidad_ultimo_pedido: rec.cantidad_ultimo_pedido,
-          articulo_id: rec.articulo_id,
-          // Feedback fields from prediction
-          ordenado: pred.ordenado,
-          razon_no_ordenado: pred.razon_no_ordenado,
-          comentario_no_ordenado: pred.comentario_no_ordenado,
-        });
-      }
-    }
-    
-    // Sort by name
-    return result.sort((a, b) => a.nombre.localeCompare(b.nombre));
-  };
-
   const fetchFeedbackData = async () => {
     try {
       const response = await fetch(`/api/feedback?sucursal=${encodeURIComponent(id as string)}`);
@@ -211,7 +162,7 @@ const SucursalPage: React.FC = () => {
       }
       const data = await response.json();
 
-      // Filtrar feedback para la fecha actual de la predicción
+      // Filter feedback for the current prediction date
       const filteredFeedback = data.feedback.filter(
         (fb: { producto: string; fecha: string }) => predictionData?.date && fb.fecha === predictionData.date
       );
@@ -226,15 +177,12 @@ const SucursalPage: React.FC = () => {
   useEffect(() => {
     if (!id || !router.isReady) return;
 
-    const fetchData = async () => {
+    const fetchHistoricalData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch feedback data
-        const feedbackData = await fetchFeedbackData();
-
-        // Establecer el nombre de la sucursal inicialmente desde el parámetro de la URL
+        // Set branch name initially from URL parameter
         const decodedId = typeof id === 'string' ? decodeURIComponent(id) : '';
         setBranchName(getDisplayBranchName(decodedId));
 
@@ -245,41 +193,64 @@ const SucursalPage: React.FC = () => {
           setSystemStatus(isOnline ? "online" : "offline");
         }
         
-        console.log(`Fetching data for branch: ${decodedId}`);
-        const response = await fetch(`/api/sucursal-predictions?id=${encodeURIComponent(decodedId)}`);
+        // Construct query parameters for API request
+        const timestampParam = timestamp ? `?timestamp=${encodeURIComponent(timestamp as string)}` : '';
+        
+        // Fetch historical prediction data
+        console.log(`Fetching historical data for branch: ${decodedId}, timestamp: ${timestamp || 'latest'}`);
+        const apiUrl = `/api/historical-predictions/${encodeURIComponent(decodedId)}${timestampParam}`;
+        console.log("API URL:", apiUrl);
+        
+        const response = await fetch(apiUrl);
         
         if (!response.ok) {
-          throw new Error(`Error ${response.status}: ${response.statusText}`);
+          const errorData = await response.json();
+          throw new Error(
+            `Error ${response.status}: ${response.statusText}` + 
+            (errorData?.error ? `\n${errorData.error}` : '')
+          );
         }
         
         const data = await response.json();
         
-        if (!data.success) {
-          throw new Error(data.message || 'No se pudieron obtener las predicciones');
+        if (!data.historicalPredictions || data.historicalPredictions.length === 0) {
+          throw new Error('No hay predicciones históricas para esta sucursal y fecha');
         }
         
-        // Actualizar el nombre de la sucursal con el nombre real devuelto por la API
-        if (data.branch) {
-          setBranchName(getDisplayBranchName(data.branch));
+        const historicalPrediction = data.historicalPredictions[0];
+        console.log("Loaded historical prediction ID:", historicalPrediction._id);
+
+        // Update branch name with the real name returned by API
+        setBranchName(getDisplayBranchName(historicalPrediction.branch));
+        
+        // Handle both weekly predictions (with dailyPredictions) and regular predictions
+        let predictions, recommendations;
+        
+        if (historicalPrediction.dailyPredictions) {
+          // This is a weekly prediction - find the first day that has data
+          const firstDate = Object.keys(historicalPrediction.dailyPredictions)[0];
+          predictions = historicalPrediction.dailyPredictions[firstDate]?.predicciones || historicalPrediction.predictions || [];
+          recommendations = historicalPrediction.dailyPredictions[firstDate]?.recomendaciones || historicalPrediction.recommendations || [];
+          console.log(`Using daily prediction data from ${firstDate}`);
+        } else {
+          // Regular prediction
+          predictions = historicalPrediction.predictions || [];
+          recommendations = historicalPrediction.recommendations || [];
         }
         
-        // Manejar tanto 'recommendations' como 'recommendation' (singular y plural)
-        const recommendations = data.recommendations?.recommendations || 
-                               data.recommendation?.recommendations || 
-                               [];
-        
-        const predictions = data.prediction.predictions || [];
-        
-        // Obtener los productos comunes (intersección) con análisis comparativo
+        // Get common products with comparative analysis - using imported function
         const commonProducts = getCommonProducts(predictions, recommendations);
         
+        // Fetch feedback data
+        const feedbackData = await fetchFeedbackData();
+
         // Merge feedback data with common products
         const mergedProducts = commonProducts.map(product => {
             const feedback = feedbackData.find((fb: { producto: string }) => fb.producto === product.nombre);
           return feedback ? { ...product, ...feedback } : product;
         });
 
-        // Asegurarnos de que cantidadPromedio esté definido en todos los productos
+        // Make sure cantidadPromedio is defined for all products
         mergedProducts.forEach(product => {
           if (product.cantidadPromedio === undefined) {
             product.cantidadPromedio = Math.round((product.cantidadPredicha + product.cantidadSugerida) / 2);
@@ -287,40 +258,39 @@ const SucursalPage: React.FC = () => {
         });
         
         setPredictionData({
-          timestamp: data.prediction.timestamp,
-          branch: data.branch,
-          date: data.prediction.date,
+          timestamp: historicalPrediction.timestamp,
+          branch: historicalPrediction.branch,
+          date: historicalPrediction.date,
           predictions: predictions,
           recommendations: recommendations,
           commonProducts: mergedProducts
         });
         
-        console.log(`Productos comunes encontrados: ${mergedProducts.length}`);
+        console.log(`Found ${mergedProducts.length} common products`);
         
-        // IMPORTANT CHANGE: Set loading to false here before inventory data fetching
+        // Set loading to false before inventory data fetching
         setLoading(false);
         
-        // Fetch inventory data ONLY for common products in the background
-        // This won't block the UI from loading
+        // Fetch inventory data in the background
         fetchInventoryData(mergedProducts).catch((err) => {
           console.error("Error fetching inventory data:", err);
         });
         
       } catch (err) {
-        console.error('Error al cargar datos:', err);
-        setError(err instanceof Error ? err.message : 'Error al cargar datos');
+        console.error('Error loading historical data:', err);
+        setError(err instanceof Error ? err.message : 'Error loading historical data');
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, [id, router.isReady]);
+    fetchHistoricalData();
+  }, [id, timestamp, router.isReady]);
 
-  // Fetch inventory data ONLY for common products (those that appear in the final table)
+  // Fetch inventory data only for common products
   const fetchInventoryData = async (commonProducts: CommonProduct[]) => {
     try {
       const inventoryData: Record<string, InventoryData> = {};
-      console.log(`Starting inventory fetch for ${commonProducts.length} common products with date: ${predictionData?.date || 'unknown'}`);
+      console.log(`Starting inventory fetch for ${commonProducts.length} common products with historical date: ${predictionData?.date || 'unknown'}`);
       
       // Process products one by one to avoid overwhelming the server
       for (let i = 0; i < commonProducts.length; i++) {
@@ -339,7 +309,7 @@ const SucursalPage: React.FC = () => {
             if (found) break;
             if (!searchTerm || searchTerm.length < 3) continue;
             
-            console.log(`[${i+1}/${commonProducts.length}] Checking inventory for: "${searchTerm}"`);
+            console.log(`[${i+1}/${commonProducts.length}] Checking historical inventory for: "${searchTerm}"`);
             
             // Add timeout to prevent hanging requests
             const controller = new AbortController();
@@ -348,7 +318,9 @@ const SucursalPage: React.FC = () => {
             try {
               // Add predictionDate parameter to get the closest historical inventory
               const predictionDateParam = predictionData?.date ? 
-                `&predictionDate=${encodeURIComponent(predictionData.date)}` : '';
+                `&predictionDate=${encodeURIComponent(predictionData.date)}` : 
+                predictionData?.timestamp ? 
+                `&predictionDate=${encodeURIComponent(predictionData.timestamp)}` : '';
               
               const response = await fetch(
                 `/api/check-inventory?productName=${encodeURIComponent(searchTerm)}${predictionDateParam}`,
@@ -362,7 +334,7 @@ const SucursalPage: React.FC = () => {
                 if (data.success && data.found) {
                   // Store the inventory data keyed by the main product name
                   inventoryData[product.nombre] = data.data;
-                  console.log(`✅ Found inventory for "${product.nombre}": ${data.data.existencia} units using collection: ${data.collection}`);
+                  console.log(`✅ Found historical inventory for "${product.nombre}": ${data.data.existencia} units using collection: ${data.collection}`);
                   found = true;
                   break;
                 }
@@ -381,15 +353,13 @@ const SucursalPage: React.FC = () => {
             console.log(`❌ No inventory found for "${product.nombre}"`);
           }
           
-          // Add a small delay between requests to avoid overwhelming the server
-          // Only if there are many products
+          // Add a small delay between requests
           if (commonProducts.length > 10 && i % 5 === 4) {
             await new Promise(resolve => setTimeout(resolve, 200));
           }
           
         } catch (itemError) {
           console.error(`Error processing inventory for "${product.nombre}":`, itemError);
-          // Continue with the next product even if this one fails
         }
       }
       
@@ -398,7 +368,6 @@ const SucursalPage: React.FC = () => {
       
     } catch (error) {
       console.error('Error in inventory data processing:', error);
-      // We still set inventory to whatever we've collected so far
       setInventory({});
     }
   };
@@ -422,7 +391,7 @@ const SucursalPage: React.FC = () => {
           producto: product.producto,
           cantidad: product.cantidadPredicha ?? product.cantidad ?? 0,
           sucursal: id,
-          fecha: new Date().toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
+          fecha: predictionData?.date || new Date().toISOString().split('T')[0],
           ordenado: ordered,
           razon_no_ordenado: reason,
           comentario: comment
@@ -463,39 +432,6 @@ const SucursalPage: React.FC = () => {
     }
   };
 
-  // Modified rendering of product items to include inventory data
-  const renderPredictionItem = (prediction: any, index: number) => {
-    const productName = prediction.articulo || prediction.producto;
-    const inventoryItem = inventory[productName];
-    
-    return (
-      <div key={index} className="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 relative overflow-hidden">
-        {/* ...existing product content... */}
-        
-        {/* Add inventory information */}
-        <div className="mt-3 border-t pt-2 dark:border-gray-700">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Inventario CEDIS:</h4>
-          {inventoryItem ? (
-            <div className="flex items-center mt-1">
-              <div className={`w-2 h-2 rounded-full mr-2 ${
-                inventoryItem.disponible ? 'bg-green-500' : 'bg-red-500'
-              }`}></div>
-              <span className="text-sm">
-                {inventoryItem.disponible 
-                  ? `Disponible (${inventoryItem.existencia} unidades)` 
-                  : 'No disponible en CEDIS'}
-              </span>
-            </div>
-          ) : (
-            <span className="text-sm text-gray-500 dark:text-gray-400">No encontrado en inventario</span>
-          )}
-        </div>
-        
-        {/* ...other UI elements... */}
-      </div>
-    );
-  };
-
   return (
     <div>
       <header className="bg-white dark:bg-gray-800 shadow-sm">
@@ -512,28 +448,24 @@ const SucursalPage: React.FC = () => {
               />
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                   {branchName}
+                  {branchName} (Histórico)
                 </h1>
                 {predictionData && (
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Última actualización: {format(new Date(predictionData.timestamp), 'dd/MM/yyyy HH:mm')}
+                    Fecha: {predictionData.date} • Actualizado: {format(new Date(predictionData.timestamp), 'dd/MM/yyyy HH:mm')}
                   </p>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
-                systemStatus === 'online' 
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200' 
-                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
-              }`}>
-                Sistema: {systemStatus === 'online' ? 'En línea' : 'Fuera de línea'}
+              <div className={`px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200`}>
+                Datos Históricos
               </div>
               <Link 
-                href="/" 
+                href="/enrique" 
                 className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-2"
               >
-                ← Volver al inicio
+                ← Volver al panel
               </Link>
             </div>
           </div>
@@ -544,7 +476,7 @@ const SucursalPage: React.FC = () => {
         {loading ? (
           <div className="flex items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
-            <span className="ml-3 text-gray-700 dark:text-gray-300">Cargando datos...</span>
+            <span className="ml-3 text-gray-700 dark:text-gray-300">Cargando datos históricos...</span>
           </div>
         ) : error ? (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -559,7 +491,13 @@ const SucursalPage: React.FC = () => {
                 <div className="mt-2 text-sm text-red-700 dark:text-red-300">
                   <p>{error}</p>
                   <p className="mt-2">
-                    No se pudieron cargar las predicciones para esta sucursal. Es posible que aún no haya predicciones disponibles.
+                    No se pudieron cargar las predicciones históricas para esta sucursal y fecha.
+                    <button 
+                      className="ml-2 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                      onClick={() => window.location.href = '/enrique'}
+                    >
+                      Volver al panel
+                    </button>
                   </p>
                 </div>
               </div>
@@ -572,7 +510,7 @@ const SucursalPage: React.FC = () => {
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                      Análisis de Productos
+                      Análisis de Productos (Datos Históricos)
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       {predictionData.commonProducts?.length || 0} productos analizados para esta sucursal • Fecha: {predictionData.date}
@@ -582,7 +520,7 @@ const SucursalPage: React.FC = () => {
                   {/* Lista de productos con detalles completos */}
                   <div className="divide-y divide-gray-200 dark:divide-gray-700">
                     {predictionData.commonProducts?.map((product, index) => {
-                      const isExpanded = expandedProduct === product.nombre;
+                      const isExpanded = expandedProduct  === product.nombre;
                       const differenceClass = getDifferenceClass(product.porcentajeDiferencia || 0);
                       // Get inventory data for this product
                       const inventoryItem = inventory[product.nombre];
@@ -625,7 +563,7 @@ const SucursalPage: React.FC = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-2">
-                              {/* Add inventory status before confidence level - UPDATED TEXT */}
+                              {/* Add inventory status before confidence level */}
                               {inventoryItem ? (
                                 <div className="flex items-center bg-gray-50 dark:bg-gray-700 rounded-lg px-2 py-1">
                                   <div className={`w-2 h-2 rounded-full ${
@@ -656,10 +594,10 @@ const SucursalPage: React.FC = () => {
                             </div>
                           </div>
                           
-                          {/* Detalles expandibles */}
+                          {/* Product detail sections - only shown when expanded */}
                           {isExpanded && (
                             <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
-                              {/* Add Inventory CEDIS section - this is the new section */}
+                              {/* Add Inventory CEDIS section */}
                               <div className="mb-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                                 <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
                                   Inventario CEDIS
@@ -692,7 +630,7 @@ const SucursalPage: React.FC = () => {
                                 )}
                               </div>
                               
-                              {/* Existing sections */}
+                              {/* Prediction and Recommendation sections */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {/* Columna de predicción */}
                                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
@@ -749,7 +687,7 @@ const SucursalPage: React.FC = () => {
                                 </div>
                               </div>
                               
-                              {/* Sección de motivo de la recomendación */}
+                              {/* Recommendation reason section */}
                               {product.motivo && (
                                 <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                                   <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
@@ -761,14 +699,14 @@ const SucursalPage: React.FC = () => {
                                 </div>
                               )}
                               
-                              {/* Sección de detalles adicionales de la recomendación */}
+                              {/* Additional recommendation details section */}
                               {(product.tipo_recomendacion || product.frecuencia_otras || product.num_sucursales || product.nivel_recomendacion || product.pedidos_recientes_otras) && (
                                 <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                                   <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
                                     Detalles Adicionales de la Recomendación
                                   </h4>
                                   <div className="space-y-4">
-                                    {/* Rango de cantidad */}
+                                    {/* Quantity range */}
                                     {(product.min_cantidad !== undefined || product.max_cantidad !== undefined) && (
                                       <div>
                                         <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Rango de Cantidad Recomendada</h5>
@@ -789,7 +727,7 @@ const SucursalPage: React.FC = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Tipo y nivel de recomendación */}
+                                    {/* Recommendation type and level */}
                                     {(product.tipo_recomendacion || product.nivel_recomendacion !== undefined) && (
                                       <div>
                                         <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Clasificación</h5>
@@ -821,7 +759,7 @@ const SucursalPage: React.FC = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Datos sobre otras sucursales */}
+                                    {/* Data from other branches */}
                                     {(product.frecuencia_otras !== undefined || product.num_sucursales !== undefined) && (
                                       <div>
                                         <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Datos de Otras Sucursales</h5>
@@ -843,7 +781,7 @@ const SucursalPage: React.FC = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Último pedido */}
+                                    {/* Last order data */}
                                     {(product.ultima_fecha_pedido || product.dias_desde_ultimo_pedido !== undefined || product.cantidad_ultimo_pedido !== undefined) && (
                                       <div>
                                         <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Último Pedido</h5>
@@ -872,7 +810,7 @@ const SucursalPage: React.FC = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Pedidos recientes en otras sucursales */}
+                                    {/* Recent orders from other branches */}
                                     {product.pedidos_recientes_otras && product.pedidos_recientes_otras.length > 0 && (
                                       <div>
                                         <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
@@ -904,7 +842,7 @@ const SucursalPage: React.FC = () => {
                                 </div>
                               )}
                               
-                              {/* Sección de análisis comparativo */}
+                              {/* Comparative analysis section */}
                               <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                                 <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
                                   Análisis Comparativo
@@ -987,7 +925,7 @@ const SucursalPage: React.FC = () => {
                       </svg>
                       <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay productos comunes</h3>
                       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        No hay productos que aparezcan tanto en predicciones como en recomendaciones para esta sucursal.
+                        No hay productos que aparezcan tanto en predicciones como en recomendaciones para esta sucursal en esta fecha.
                       </p>
                     </div>
                   )}
@@ -1016,4 +954,4 @@ const SucursalPage: React.FC = () => {
   );
 };
 
-export default SucursalPage;
+export default HistoricalPredictionPage;

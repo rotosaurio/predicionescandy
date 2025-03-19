@@ -93,3 +93,59 @@ export const loadFromLocalStorage = <T>(key: string, defaultValue: T): T => {
     return defaultValue;
   }
 };
+
+/**
+ * Get common products between predictions and recommendations with analysis
+ */
+export const getCommonProducts = (predictions: any[], recommendations: any[]): any[] => {
+  const result: any[] = [];
+  
+  // Create maps for faster lookup
+  const predMap = new Map(predictions.map(p => [p.nombre.toLowerCase(), p]));
+  const recMap = new Map(recommendations.map(r => [r.nombre.toLowerCase(), r]));
+  
+  // Find common products
+  for (const pred of predictions) {
+    const predName = pred.nombre.toLowerCase();
+    if (recMap.has(predName)) {
+      const rec = recMap.get(predName)!;
+      
+      // Calculate differences
+      const predQty = pred.cantidad;
+      const recQty = rec.cantidad_sugerida;
+      const difference = recQty - predQty;
+      const percentDiff = predQty > 0 ? (difference / predQty) * 100 : 0;
+      
+      result.push({
+        producto: pred.nombre,
+        nombre: pred.nombre,
+        cantidadPredicha: predQty,
+        cantidadSugerida: recQty,
+        cantidadPromedio: Math.round((predQty + recQty) / 2),
+        confianzaPrediccion: pred.confianza,
+        confianzaRecomendacion: rec.confianza,
+        diferenciaCantidad: difference,
+        porcentajeDiferencia: percentDiff,
+        tipo: rec.tipo,
+        motivo: rec.motivo,
+        articulo_id: pred.articulo_id,
+        min_cantidad: rec.min_cantidad,
+        max_cantidad: rec.max_cantidad,
+        tipo_recomendacion: rec.tipo_recomendacion,
+        frecuencia_otras: rec.frecuencia_otras,
+        num_sucursales: rec.num_sucursales,
+        nivel_recomendacion: rec.nivel_recomendacion,
+        pedidos_recientes_otras: rec.pedidos_recientes_otras,
+        ultima_fecha_pedido: rec.ultima_fecha_pedido,
+        dias_desde_ultimo_pedido: rec.dias_desde_ultimo_pedido,
+        cantidad_ultimo_pedido: rec.cantidad_ultimo_pedido,
+        // Feedback fields from prediction
+        ordenado: pred.ordenado,
+        razon_no_ordenado: pred.razon_no_ordenado,
+        comentario_no_ordenado: pred.comentario_no_ordenado,
+      });
+    }
+  }
+  
+  return result.sort((a, b) => a.nombre.localeCompare(b.nombre));
+};

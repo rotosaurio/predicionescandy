@@ -41,11 +41,27 @@ function normalizePredictionData(item: any, collectionName?: string): any {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { method } = req;
+  const { branch, date } = req.query;
 
   try {
     console.log('[API] Llamada a predictions-history con método:', method);
     const { db } = await connectToDatabase();
     const historyCollection = 'predictions_history';
+
+    // GET - Fetch prediction details for a specific branch and date
+    if (method === 'GET' && branch && date) {
+      const prediction = await db.collection(historyCollection).findOne({ branch, date });
+      if (!prediction) {
+        return res.status(404).json({
+          success: false,
+          message: 'No se encontraron detalles para la predicción seleccionada.',
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        prediction,
+      });
+    }
 
     // GET - Obtener historial de predicciones
     if (method === 'GET') {

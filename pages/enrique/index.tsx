@@ -1,7 +1,7 @@
 import Image from "next/image";
 import localFont from "next/font/local";
 import { useState, useEffect } from "react";
-import { format, parseISO, startOfMonth, endOfMonth, isSameDay } from "date-fns";
+import { format, parseISO, startOfMonth, endOfMonth, isSameDay, startOfWeek, endOfWeek, subWeeks } from "date-fns";
 import Link from "next/link";
 import ObservationsTable from '../../components/ObservationsTable';
 import { FeedbackProduct } from '../../types/models';
@@ -66,7 +66,7 @@ export default function AdvancedPanel() {
   const [systemStatus, setSystemStatus] = useState<"online" | "offline" | "unknown">("unknown");
   const [branches, setBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
-  const [dateFilter, setDateFilter] = useState<"all" | "this-month" | "custom">("all");
+  const [dateFilter, setDateFilter] = useState<"all" | "this-month" | "last-week" | "custom">("all");
   const [startDate, setStartDate] = useState<string>(format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState<string>(format(endOfMonth(new Date()), "yyyy-MM-dd"));
   const [sortBy, setSortBy] = useState<"date-desc" | "date-asc" | "branch" | "products">("date-desc");
@@ -381,6 +381,15 @@ export default function AdvancedPanel() {
         const itemDate = new Date(item.timestamp);
         return itemDate >= firstDay && itemDate <= lastDay;
       });
+    } else if (dateFilter === "last-week") {
+      const now = new Date();
+      const lastWeekStart = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }); // Lunes de la semana pasada
+      const lastWeekEnd = endOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }); // Domingo de la semana pasada
+
+      filtered = filtered.filter(item => {
+        const itemDate = new Date(item.timestamp);
+        return itemDate >= lastWeekStart && itemDate <= lastWeekEnd;
+      });
     } else if (dateFilter === "custom" && startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
@@ -529,6 +538,26 @@ export default function AdvancedPanel() {
       ...prev,
       [groupId]: !prev[groupId]
     }));
+  };
+
+  const viewPredictionDetails = (branch: string, date: string) => {
+    // Get the timestamp from the selected prediction
+    const prediction = historicalData.find(item => 
+      item.branch === branch && item.date === date
+    );
+    
+    if (prediction) {
+      console.log("Found prediction with timestamp:", prediction.timestamp);
+      // Navigate to historical page with timestamp parameter
+      // Encode both branch and timestamp properly
+      const encodedBranch = encodeURIComponent(branch);
+      const encodedTimestamp = encodeURIComponent(prediction.timestamp);
+      window.location.href = `/sucursal/historical?id=${encodedBranch}&timestamp=${encodedTimestamp}`;
+    } else {
+      console.log("No specific prediction found for", branch, date);
+      // If no specific timestamp is found, just pass the branch ID
+      window.location.href = `/sucursal/historical?id=${encodeURIComponent(branch)}`;
+    }
   };
 
   const filteredData = filterHistoricalData();
@@ -746,12 +775,12 @@ export default function AdvancedPanel() {
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <Link
-                              href={`/sucursal/${encodeURIComponent(item.branch)}`}
+                            <button
+                              onClick={() => viewPredictionDetails(item.branch, item.date)}
                               className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
                             >
-                              Ver predicción
-                            </Link>
+                              Ver predicción histórica
+                            </button>
                           </td>
                         </tr>
                       );

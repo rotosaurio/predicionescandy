@@ -4,7 +4,7 @@ import { IncomingForm } from 'formidable';
 import { promises as fs } from 'fs';
 import * as xlsx from 'xlsx';
 import path from 'path';
-        import os from 'os';
+import os from 'os';
 
 // Disable the default body parser to handle form data with files
 export const config = {
@@ -149,28 +149,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Connect to MongoDB and insert data
     const { db } = await connectToDatabase();
     
-    // First, drop existing collection to replace with new data
+    // Create a timestamp for this inventory snapshot
+    const timestamp = new Date();
+    const timestampStr = timestamp.toISOString();
+    const inventoryDate = formData.fields.inventoryDate || timestamp.toISOString().split('T')[0];
+    
+    // Create a new collection with timestamp in the name for historical purposes
+    const collectionName = `inventariocedis_${timestampStr.replace(/[:.]/g, '_')}`;
+    
+    // Insert new data into the historical collection
+    await db.collection(collectionName).insertMany(processedData);
+    console.log(`Created historical inventory collection: ${collectionName}`);
+    
+    // Also update the current inventory collection for backward compatibility
     try {
       await db.collection('inventariocedis').drop();
     } catch (error) {
       // Collection might not exist, continue
     }
-
-    // Insert new data
-    const result = await db.collection('inventariocedis').insertMany(processedData);
+    // Insert into current collection
+    await db.collection('inventariocedis').insertMany(processedData);
+    
+    // Add metadata entry
+    const metadataEntry = {
+      timestamp,
+      inventoryDate,
+      filename: file.originalFilename || file.name,
+      recordCount: processedData.length,
+      collectionName,
+    };
     
     // Add timestamp metadata
-    await db.collection('inventariocedis_metadata').insertOne({
-      timestamp: new Date(),
-      filename: file.originalFilename || file.name,
-      recordCount: processedData.length
-    });
+    await db.collection('inventariocedis_metadata').insertOne(metadataEntry);
 
     return res.status(200).json({
       success: true,
       message: 'Archivo procesado correctamente',
       count: processedData.length,
-      preview: processedData.slice(0, 10) // Return first 10 items as preview
+      preview: processedData.slice(0, 10), // Return first 10 items as preview
+      inventoryDate,
+      timestamp: timestampStr
     });
 
   } catch (error) {

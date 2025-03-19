@@ -2,26 +2,28 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '../../lib/mongodb';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { method } = req;
-  const { sucursal, fecha } = req.query;
-
   try {
     const { db } = await connectToDatabase();
     const feedbackCollection = 'feedback';
-    
+
     // GET - Obtener feedback
-    if (method === 'GET') {
-      let query = {};
+    if (req.method === 'GET') {
+      const { sucursal, fecha, predictionId } = req.query;
       
-      // Filtros
-      if (sucursal && typeof sucursal === 'string') {
-        query = { ...query, sucursal };
+      const query: any = {};
+      
+      if (sucursal) {
+        query.sucursal = sucursal;
       }
       
-      if (fecha && typeof fecha === 'string') {
-        query = { ...query, fecha };
+      if (fecha) {
+        query.fecha = fecha;
       }
       
+      if (predictionId) {
+        query.predictionId = predictionId;
+      }
+
       // Verificar que la colección existe
       const collections = await db.listCollections({ name: feedbackCollection }).toArray();
       if (collections.length === 0) {
@@ -31,14 +33,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           feedback: []
         });
       }
-      
-      // Consultar la colección
+
       console.log('[API] Consultando colección feedback con filtro:', query);
       const feedback = await db
         .collection(feedbackCollection)
         .find(query)
         .toArray();
-      
+
       console.log(`[API] Encontrados ${feedback.length} registros de feedback`);
       
       return res.status(200).json({
@@ -46,9 +47,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         feedback
       });
     }
-    
+
     // POST - Guardar nuevo feedback
-    if (method === 'POST') {
+    if (req.method === 'POST') {
       const { producto, sucursal, fecha, ordenado, razon_no_ordenado, comentario } = req.body;
       
       if (!producto || !sucursal || !fecha || ordenado === undefined) {
@@ -104,10 +105,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
   } catch (error) {
     console.error('[API] Error en API de feedback:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error instanceof Error ? error.message : 'Error desconocido'
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }

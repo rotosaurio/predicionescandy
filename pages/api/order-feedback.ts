@@ -2,20 +2,20 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '../../lib/mongodb';
 import { OrderFeedback } from '../../types/models';
 
-export default async (req: NextApiRequest, res: NextApiResponse) => {
-  if (req.method === 'POST' && req.url === '/api/order-feedback/batch') {
-    const feedbacks = req.body;
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    const { db } = await connectToDatabase();
 
-    if (!Array.isArray(feedbacks) || feedbacks.length === 0) {
-      return res.status(400).json({ message: 'Invalid feedback data' });
-    }
+    if (req.method === 'POST' && req.url === '/api/order-feedback/batch') {
+      const feedbacks = req.body;
 
-    try {
-      const { db } = await connectToDatabase();
+      if (!Array.isArray(feedbacks) || feedbacks.length === 0) {
+        return res.status(400).json({ message: 'Invalid feedback data' });
+      }
+
       const feedbackDocs = feedbacks.map(feedback => ({
         ...feedback,
-        predictionId: '', // Add appropriate prediction ID if available
-        usuario: '', // Add appropriate user information if available
+        predictionId: feedback.predictionId || null, // Include predictionId if provided
         fecha_feedback: new Date().toISOString()
       }));
 
@@ -23,25 +23,21 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
 
       console.log('Batch order feedback saved:', feedbackDocs);
       return res.status(200).json({ success: true, feedbacks: feedbackDocs });
-    } catch (error) {
-      console.error('Error saving batch order feedback:', error);
-      return res.status(500).json({ message: 'Internal server error' });
-    }
-  } else if (req.method === 'POST') {
-    const { producto, sucursal, fecha, ordenado, razon_no_ordenado, comentario } = req.body;
-
-    if (!producto || !sucursal || !fecha || ordenado === undefined) {
-      return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    try {
-      const { db } = await connectToDatabase();
+    if (req.method === 'POST') {
+      const { producto, cantidad, sucursal, fecha, ordenado, razon_no_ordenado, comentario, predictionId } = req.body;
+
+      if (!producto || !sucursal || !fecha || ordenado === undefined) {
+        return res.status(400).json({ message: 'Missing required fields' });
+      }
 
       // Verificar si ya existe feedback para el producto y la fecha
       const existingFeedback = await db.collection('feedback').findOne({
         producto,
         sucursal,
         fecha,
+        predictionId // Add predictionId to uniqueness check if provided
       });
 
       if (existingFeedback) {
@@ -49,25 +45,25 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
       }
 
       const feedback: OrderFeedback = {
-        predictionId: '', // Add appropriate prediction ID if available
         producto,
+        cantidad,
         sucursal,
         fecha,
         ordenado,
         razon_no_ordenado,
         comentario,
-        usuario: '', // Add appropriate user information if available
+        predictionId: predictionId || null, // Store predictionId if provided
         fecha_feedback: new Date().toISOString(),
       };
 
       await db.collection('feedback').insertOne(feedback);
 
       return res.status(201).json({ success: true, feedback });
-    } catch (error) {
-      console.error('Error saving feedback:', error);
-      return res.status(500).json({ message: 'Internal server error' });
     }
-  } else {
+
     return res.status(405).json({ message: 'Method not allowed' });
+  } catch (error) {
+    console.error('Error saving feedback:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
-};
+}

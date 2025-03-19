@@ -156,18 +156,18 @@ const HistoricalPredictionPage: React.FC = () => {
 
   const fetchFeedbackData = async () => {
     try {
-      const response = await fetch(`/api/feedback?sucursal=${encodeURIComponent(id as string)}`);
+      // Include predictionId in the query params if available
+      const predictionIdParam = predictionData?.timestamp ? 
+        `&predictionId=${encodeURIComponent(predictionData.timestamp)}` : '';
+      
+      const response = await fetch(`/api/feedback?sucursal=${encodeURIComponent(id as string)}${predictionIdParam}`);
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
       const data = await response.json();
 
-      // Filter feedback for the current prediction date
-      const filteredFeedback = data.feedback.filter(
-        (fb: { producto: string; fecha: string }) => predictionData?.date && fb.fecha === predictionData.date
-      );
-
-      return filteredFeedback;
+      // No need to filter by date here as we're already filtering by predictionId
+      return data.feedback;
     } catch (error) {
       console.error('Error fetching feedback data:', error);
       return [];
@@ -394,7 +394,8 @@ const HistoricalPredictionPage: React.FC = () => {
           fecha: predictionData?.date || new Date().toISOString().split('T')[0],
           ordenado: ordered,
           razon_no_ordenado: reason,
-          comentario: comment
+          comentario: comment,
+          predictionId: predictionData?.timestamp || null // Add the prediction timestamp as ID
         }),
       });
       

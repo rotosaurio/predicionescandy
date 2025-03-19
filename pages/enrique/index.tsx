@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { useState, useEffect } from "react";
 import { format, parseISO, startOfMonth, endOfMonth, isSameDay, startOfWeek, endOfWeek, subWeeks } from "date-fns";
 import Link from "next/link";
+import { useRouter } from 'next/router';
 import ObservationsTable from '../../components/ObservationsTable';
 import { FeedbackProduct } from '../../types/models';
 
@@ -57,9 +58,11 @@ interface FeedbackData {
   sucursal: string;
   fecha: string;
   feedback: FeedbackProduct[];
+  predictionId?: string; // Add the predictionId property as optional
 }
 
 export default function AdvancedPanel() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [historicalData, setHistoricalData] = useState<HistoricalPrediction[]>([]);
@@ -85,6 +88,7 @@ export default function AdvancedPanel() {
   const [uniqueSucursales, setUniqueSucursales] = useState<string[]>([]);
   const [uniqueFechas, setUniqueFechas] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [expandedPredictionGroups, setExpandedPredictionGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -486,40 +490,51 @@ export default function AdvancedPanel() {
       if (data.success && Array.isArray(data.feedback)) {
         console.log(`${data.feedback.length} feedbacks cargados desde MongoDB`);
         
-        // Agrupar feedback por sucursal y fecha
+        // Agrupar feedback por sucursal, fecha y predictionId
         const groupedData: FeedbackData[] = [];
-        const feedbackMap = new Map<string, Map<string, FeedbackProduct[]>>();
-        const sucursalesSet = new Set<string>();
-        const fechasSet = new Set<string>();
+        const feedbackMap = new Map<string, Map<string, Map<string, FeedbackProduct[]>>>();
         
         data.feedback.forEach((item: FeedbackProduct) => {
-          const sucursal = item.sucursal || "Desconocida";
-          const fecha = item.fecha || "Desconocida";
+          // Extract values safely
+          const sucursal = item.sucursal || 'unknown';
+          const fecha = item.fecha || 'unknown';
+          const predictionId = item.predictionId || fecha; // Use fecha as fallback for old data
           
-          // Add to sets for filters
-          sucursalesSet.add(sucursal);
-          fechasSet.add(fecha);
-          
+          // Create nested maps if they don't exist
           if (!feedbackMap.has(sucursal)) {
-            feedbackMap.set(sucursal, new Map<string, FeedbackProduct[]>());
+            feedbackMap.set(sucursal, new Map<string, Map<string, FeedbackProduct[]>>());
           }
+          
           const sucursalMap = feedbackMap.get(sucursal)!;
           
           if (!sucursalMap.has(fecha)) {
-            sucursalMap.set(fecha, []);
+            sucursalMap.set(fecha, new Map<string, FeedbackProduct[]>());
           }
-          sucursalMap.get(fecha)!.push(item);
+          
+          const fechaMap = sucursalMap.get(fecha)!;
+          
+          if (!fechaMap.has(predictionId)) {
+            fechaMap.set(predictionId, []);
+          }
+          
+          fechaMap.get(predictionId)!.push(item);
         });
         
-        feedbackMap.forEach((fechaMap, sucursal) => {
-          fechaMap.forEach((feedback, fecha) => {
-            groupedData.push({ sucursal, fecha, feedback });
+        // Convert map to array structure
+        feedbackMap.forEach((fechaMaps, sucursal) => {
+          fechaMaps.forEach((predictionMaps, fecha) => {
+            predictionMaps.forEach((feedback, predictionId) => {
+              groupedData.push({
+                sucursal,
+                fecha,
+                predictionId,
+                feedback
+              });
+            });
           });
         });
         
         setFeedbackData(groupedData);
-        setUniqueSucursales(Array.from(sucursalesSet).sort());
-        setUniqueFechas(Array.from(fechasSet).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()));
         console.log("Datos de feedback cargados correctamente:", groupedData);
       } else {
         console.log("No se encontró feedback en la base de datos");
@@ -539,6 +554,35 @@ export default function AdvancedPanel() {
       [groupId]: !prev[groupId]
     }));
   };
+  
+  const togglePredictionGroupExpansion = (groupId: string) => {
+    setExpandedPredictionGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId]
+    }));
+  };
+
+  // Add a function to group predictions by date
+  const groupPredictionsByDate = () => {
+    const filteredData = filterHistoricalData();
+    const groupedByDate: Record<string, HistoricalPrediction[]> = {};
+    
+    filteredData.forEach(prediction => {
+      const date = format(new Date(prediction.timestamp), "yyyy-MM-dd");
+      if (!groupedByDate[date]) {
+        groupedByDate[date] = [];
+      }
+      groupedByDate[date].push(prediction);
+    });
+    
+    return Object.entries(groupedByDate)
+      .map(([date, predictions]) => ({
+        date,
+        formattedDate: format(new Date(date), "dd/MM/yyyy"),
+        predictions
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  };
 
   const viewPredictionDetails = (branch: string, date: string) => {
     // Get the timestamp from the selected prediction
@@ -548,19 +592,19 @@ export default function AdvancedPanel() {
     
     if (prediction) {
       console.log("Found prediction with timestamp:", prediction.timestamp);
-      // Navigate to historical page with timestamp parameter
-      // Encode both branch and timestamp properly
+      // Use Next.js router instead of window.location.href
       const encodedBranch = encodeURIComponent(branch);
       const encodedTimestamp = encodeURIComponent(prediction.timestamp);
-      window.location.href = `/sucursal/historical?id=${encodedBranch}&timestamp=${encodedTimestamp}`;
+      router.push(`/sucursal/historical?id=${encodedBranch}&timestamp=${encodedTimestamp}`);
     } else {
       console.log("No specific prediction found for", branch, date);
-      // If no specific timestamp is found, just pass the branch ID
-      window.location.href = `/sucursal/historical?id=${encodeURIComponent(branch)}`;
+      // Use router.push instead of window.location.href
+      router.push(`/sucursal/historical?id=${encodeURIComponent(branch)}`);
     }
   };
 
   const filteredData = filterHistoricalData();
+  const groupedPredictions = groupPredictionsByDate();
 
   return (
     <div className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-gray-50 dark:bg-gray-900 font-[family-name:var(--font-geist-sans)]`}>
@@ -730,76 +774,109 @@ export default function AdvancedPanel() {
                   </span>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className="bg-gray-50 dark:bg-gray-800">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Fecha</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sucursal</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Productos</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Recomendaciones</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Confianza Promedio</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredData.map((item, index) => {
-                      // Calcular confianza promedio
-                      const predictions = item.predictions || [];
-                      let totalConfidence = 0;
-                      predictions.forEach(prediction => {
-                        totalConfidence += prediction.confianza;
-                      });
-                      const avgConfidence = predictions.length > 0 ? totalConfidence / predictions.length : 0;
+              
+              <div className="p-6">
+                {groupedPredictions.length > 0 ? (
+                  <div className="space-y-2">
+                    {groupedPredictions.map((group, index) => {
+                      const groupId = `prediction-date-${group.date}-${index}`;
+                      const isExpanded = !!expandedPredictionGroups[groupId];
+                      const totalPredictions = group.predictions.reduce((acc, curr) => acc + (curr.predictions?.length || 0), 0);
                       
                       return (
-                        <tr key={`${item.branch}-${item.timestamp}-${index}`} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${
-                          isTodayPrediction(item.timestamp) ? 'bg-purple-50 dark:bg-purple-900/10' : ''
-                        }`}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            <div>{format(new Date(item.timestamp), "dd/MM/yyyy")}</div>
-                            <div className="text-xs opacity-70">{format(new Date(item.timestamp), "HH:mm:ss")}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                            {item.branch}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {predictions.length}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {item.recommendations?.length || 0}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <span className={getConfidenceClass(avgConfidence)}>
-                              {avgConfidence.toFixed(1)}%
+                        <div key={groupId} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                          {/* Clickable header */}
+                          <div 
+                            className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50"
+                            onClick={() => togglePredictionGroupExpansion(groupId)}
+                          >
+                            <h3 className="text-md font-semibold text-gray-900 dark:text-white flex items-center">
+                              <svg 
+                                className={`h-5 w-5 mr-1.5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                                xmlns="http://www.w3.org/2000/svg" 
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                              >
+                                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                              </svg>
+                              Fecha: {group.formattedDate} ({group.predictions.length} {group.predictions.length === 1 ? 'predicción' : 'predicciones'})
+                            </h3>
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 py-0.5 px-2 rounded-full">
+                              {totalPredictions} {totalPredictions === 1 ? 'producto' : 'productos'} predichos
                             </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <button
-                              onClick={() => viewPredictionDetails(item.branch, item.date)}
-                              className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
-                            >
-                              Ver predicción histórica
-                            </button>
-                          </td>
-                        </tr>
+                          </div>
+                          
+                          {/* Expandable content */}
+                          {isExpanded && (
+                            <div className="border-t border-gray-200 dark:border-gray-700">
+                              {group.predictions.map((prediction, predIndex) => {
+                                // Calculate average confidence
+                                const predictions = prediction.predictions || [];
+                                let totalConfidence = 0;
+                                predictions.forEach(p => {
+                                  totalConfidence += p.confianza;
+                                });
+                                const avgConfidence = predictions.length > 0 ? totalConfidence / predictions.length : 0;
+                                
+                                return (
+                                  <div key={`${prediction.branch}-${prediction.timestamp}-${predIndex}`} 
+                                       className="p-4 hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                                    <div className="flex flex-wrap justify-between items-center mb-3">
+                                      <div className="mr-4">
+                                        <h4 className="font-medium text-gray-900 dark:text-white">{prediction.branch}</h4>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                                          {format(new Date(prediction.timestamp), "dd/MM/yyyy HH:mm:ss")}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">
+                                          Confianza promedio: 
+                                        </span>
+                                        <span className={`text-sm font-medium ${getConfidenceClass(avgConfidence)}`}>
+                                          {avgConfidence.toFixed(1)}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap justify-between">
+                                      <div>
+                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                          Productos: {predictions.length}
+                                        </span>
+                                        {prediction.recommendations && (
+                                          <span className="ml-4 text-xs font-medium text-gray-500 dark:text-gray-400">
+                                            Recomendaciones: {prediction.recommendations.length}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <button
+                                        onClick={() => viewPredictionDetails(prediction.branch, prediction.date)}
+                                        className="text-sm text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
+                                      >
+                                        Ver detalles completos
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
+                    <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay predicciones</h3>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      No se encontraron predicciones que coincidan con los filtros aplicados.
+                    </p>
+                  </div>
+                )}
               </div>
-              
-              {filteredData.length === 0 && (
-                <div className="text-center py-12">
-                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                  </svg>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay predicciones</h3>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    No se encontraron predicciones que coincidan con los filtros aplicados.
-                  </p>
-                </div>
-              )}
             </div>
 
             {/* Filtros y controles - MOVED HERE */}

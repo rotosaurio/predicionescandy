@@ -10,6 +10,9 @@ export type User = {
 
 let currentUser: Partial<User> | null = null;
 
+// Improve session persistence by caching the user object
+let cachedUser: User | null = null;
+
 export async function authenticateUser(username: string, password: string): Promise<User | null> {
   const response = await fetch('/api/authenticate', {
     method: 'POST',
@@ -28,24 +31,65 @@ export async function authenticateUser(username: string, password: string): Prom
 }
 
 export function setCurrentUser(user: User): void {
-  currentUser = {
-    username: user.username,
-    role: user.role,
-    sucursal: user.sucursal,
-    sucursalId: user.sucursalId,
-  };
+  if (typeof window === 'undefined') return;
+  
+  try {
+    cachedUser = user;
+    sessionStorage.setItem('user', JSON.stringify(user));
+  } catch (e) {
+    console.error('Error setting current user:', e);
+  }
 }
 
-export function getCurrentUser(): Partial<User> | null {
-  return currentUser;
+export function getCurrentUser(): User | null {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    // Return cached user if available
+    if (cachedUser) return cachedUser;
+    
+    const userJson = sessionStorage.getItem('user');
+    if (!userJson) return null;
+    
+    const user = JSON.parse(userJson);
+    cachedUser = user;
+    return user;
+  } catch (e) {
+    console.error('Error getting current user:', e);
+    return null;
+  }
 }
 
 export function clearCurrentUser(): void {
-  currentUser = null;
+  if (typeof window === 'undefined') return;
+  
+  try {
+    cachedUser = null;
+    sessionStorage.removeItem('user');
+  } catch (e) {
+    console.error('Error clearing current user:', e);
+  }
 }
 
 export function isUserLoggedIn(): boolean {
-  return currentUser !== null;
+  if (typeof window === 'undefined') return false;
+  
+  try {
+    // First check cached user
+    if (cachedUser) return true;
+    
+    // Then check session storage
+    const userJson = sessionStorage.getItem('user');
+    if (!userJson) return false;
+    
+    // Parse and cache the user object
+    const user = JSON.parse(userJson);
+    cachedUser = user;
+    return !!user;
+  } catch (e) {
+    console.error('Error checking login status:', e);
+    return false;
+  }
 }
 
 export function getUserSucursal(user: User): string | null {

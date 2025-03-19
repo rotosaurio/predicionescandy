@@ -9,30 +9,37 @@ interface RouteGuardProps {
 export default function RouteGuard({ children }: RouteGuardProps) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false); // Add this state to track if auth check has completed
 
   useEffect(() => {
     // Auth check function that verifies if route can be accessed
     const authCheck = async (url: string) => {
+      // Add a short delay to ensure session is loaded (especially after page refresh)
+      if (!authChecked) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       const publicPaths = ['/login'];
       const path = url.split('?')[0];
       
-      // Allow access to public paths
       if (publicPaths.includes(path)) {
         setAuthorized(true);
+        setAuthChecked(true);
         return;
       }
-
-      const isLoggedIn = await isUserLoggedIn();
-      if (!isLoggedIn) {
+      
+      const loggedIn = isUserLoggedIn();
+      if (!loggedIn) {
         setAuthorized(false);
+        setAuthChecked(true);
         router.push({
           pathname: '/login',
           query: { returnUrl: router.asPath }
         });
         return;
       }
-
-      // Check if the user has permission to access this route
+      
+      // Get current user
       const user = getCurrentUser();
       const accessCheck = checkUserAccess(user, path);
       
@@ -41,26 +48,28 @@ export default function RouteGuard({ children }: RouteGuardProps) {
       } else {
         setAuthorized(false);
         
-        // Add validation to ensure we don't navigate to invalid routes
+        // Redirect to specified route or login
         const redirectTo = accessCheck.redirectTo || '/login';
-        
-        // Check if the redirect path contains any route parameters that need to be replaced
-        if (redirectTo.includes('[') && redirectTo.includes(']')) {
-          console.error("Invalid redirect path detected:", redirectTo);
-          router.push('/login');
-        } else {
+        if (router.pathname !== redirectTo) {
+          console.log(`Unauthorized access to ${path}, redirecting to ${redirectTo}`);
           router.push(redirectTo);
+        } else {
+          router.push('/login');
         }
       }
+      
+      setAuthChecked(true);
     };
 
     // Run auth check on initial load
     authCheck(router.asPath);
 
     // Run auth check on route change
-    const hideContent = () => setAuthorized(false);
+    const hideContent = () => {
+      setAuthorized(false);
+      setAuthChecked(false); // Reset auth check status on route change
+    };
     router.events.on('routeChangeStart', hideContent);
-
     router.events.on('routeChangeComplete', authCheck);
 
     return () => {
@@ -69,5 +78,8 @@ export default function RouteGuard({ children }: RouteGuardProps) {
     };
   }, [router]);
 
-  return authorized ? <>{children}</> : <div className="flex justify-center items-center h-screen">Autenticando...</div>;
+  // Show loading state until auth check is complete, then show content if authorized
+  return authChecked ? 
+    (authorized ? <>{children}</> : <div className="flex justify-center items-center h-screen">Autenticando...</div>)
+    : <div className="flex justify-center items-center h-screen">Cargando...</div>;
 }

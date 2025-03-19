@@ -422,10 +422,11 @@ const SucursalPage: React.FC = () => {
           producto: product.producto,
           cantidad: product.cantidadPredicha ?? product.cantidad ?? 0,
           sucursal: id,
-          fecha: new Date().toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
+          fecha: predictionData?.date || new Date().toISOString().split('T')[0],
           ordenado: ordered,
           razon_no_ordenado: reason,
-          comentario: comment
+          comentario: comment,
+          predictionId: predictionData?.timestamp || null // Add the prediction timestamp as ID
         }),
       });
       

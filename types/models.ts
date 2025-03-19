@@ -14,14 +14,14 @@ export interface Prediction {
 export type NoOrdenadoRazon = "hay_en_tienda" | "no_hay_en_cedis" | "otro";
 
 export interface OrderFeedback {
-  predictionId: string;
+  predictionId?: string;  // Add this field to link to specific prediction
   producto: string;
+  cantidad: number;
   sucursal: string;
   fecha: string;
   ordenado: boolean;
   razon_no_ordenado?: NoOrdenadoRazon;
   comentario?: string;
-  usuario: string;
   fecha_feedback: string;
 }
 
@@ -83,6 +83,7 @@ export interface FeedbackProduct {
   sucursal?: string;
   fecha?: string;
   comentario?: string; // Ensure this field is included
+  predictionId?: string;  // Add this field to link to specific prediction
 }
 
 // History types

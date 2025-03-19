@@ -3,9 +3,10 @@ import { FeedbackProduct } from '../types/models';
 
 interface ObservationsTableProps {
   observations: FeedbackProduct[];
+  showPredictionId?: boolean; // Add optional prop to show prediction ID
 }
 
-export default function ObservationsTable({ observations }: ObservationsTableProps) {
+export default function ObservationsTable({ observations, showPredictionId = false }: ObservationsTableProps) {
   if (!observations || observations.length === 0) {
     return <div className="text-center p-4 text-gray-500 dark:text-gray-400">No hay observaciones para mostrar</div>;
   }
@@ -21,6 +22,9 @@ export default function ObservationsTable({ observations }: ObservationsTablePro
             <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Comentario</th>
             <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Cantidad</th>
             <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Fecha Feedback</th>
+            {showPredictionId && (
+              <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">ID Predicción</th>
+            )}
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -64,6 +68,19 @@ export default function ObservationsTable({ observations }: ObservationsTablePro
                       }) 
                     : '-'}
               </td>
+              {showPredictionId && (
+                <td className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                  {observation.predictionId 
+                    ? new Date(observation.predictionId).toLocaleString('es-MX', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                    : '-'}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

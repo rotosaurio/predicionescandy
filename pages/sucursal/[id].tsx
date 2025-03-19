@@ -205,18 +205,17 @@ const SucursalPage: React.FC = () => {
 
   const fetchFeedbackData = async () => {
     try {
-      const response = await fetch(`/api/feedback?sucursal=${encodeURIComponent(id as string)}`);
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
+      // Include predictionId in the query params if available
+      const predictionIdParam = predictionData?.timestamp ? 
+        `&predictionId=${encodeURIComponent(predictionData.timestamp)}` : '';
+      
+      const response = await fetch(`/api/feedback?sucursal=${encodeURIComponent(id as string)}${predictionIdParam}`);
+      if (!response.ok) throw new Error('Error fetching feedback data');
+      
       const data = await response.json();
-
-      // Filtrar feedback para la fecha actual de la predicción
-      const filteredFeedback = data.feedback.filter(
-        (fb: { producto: string; fecha: string }) => predictionData?.date && fb.fecha === predictionData.date
-      );
-
-      return filteredFeedback;
+      
+      // No need to filter by date here as we're already filtering by predictionId in the API
+      return data.feedback;
     } catch (error) {
       console.error('Error fetching feedback data:', error);
       return [];
@@ -273,9 +272,15 @@ const SucursalPage: React.FC = () => {
         // Obtener los productos comunes (intersección) con análisis comparativo
         const commonProducts = getCommonProducts(predictions, recommendations);
         
-        // Merge feedback data with common products
+        // Merge feedback data with common products - UPDATE THIS LOGIC
         const mergedProducts = commonProducts.map(product => {
-            const feedback = feedbackData.find((fb: { producto: string }) => fb.producto === product.nombre);
+          // Match by product name AND predictionId to ensure correct associations
+          const feedback = feedbackData.find((fb: { producto: string; predictionId?: string; fecha?: string }) => 
+            fb.producto === product.nombre && 
+            // Either match specific predictionId or allow backward compatibility for old data
+            (fb.predictionId === data.prediction.timestamp || 
+             (!fb.predictionId && fb.fecha === data.prediction.date))
+          );
           return feedback ? { ...product, ...feedback } : product;
         });
 
@@ -413,6 +418,11 @@ const SucursalPage: React.FC = () => {
     try {
       setLoadingFeedback(prev => ({ ...prev, [product.producto]: true }));
       
+      // Ensure we have the current predictionId
+      if (!predictionData?.timestamp) {
+        throw new Error('Missing prediction timestamp for feedback');
+      }
+      
       const response = await fetch('/api/order-feedback', {
         method: 'POST',
         headers: {
@@ -422,11 +432,11 @@ const SucursalPage: React.FC = () => {
           producto: product.producto,
           cantidad: product.cantidadPredicha ?? product.cantidad ?? 0,
           sucursal: id,
-          fecha: predictionData?.date || new Date().toISOString().split('T')[0],
+          fecha: predictionData.date,
           ordenado: ordered,
           razon_no_ordenado: reason,
           comentario: comment,
-          predictionId: predictionData?.timestamp || null // Add the prediction timestamp as ID
+          predictionId: predictionData.timestamp // Always use the current prediction's timestamp
         }),
       });
       

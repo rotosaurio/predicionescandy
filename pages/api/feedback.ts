@@ -8,44 +8,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // GET - Obtener feedback
     if (req.method === 'GET') {
-      const { sucursal, fecha, predictionId } = req.query;
-      
-      const query: any = {};
-      
-      if (sucursal) {
-        query.sucursal = sucursal;
-      }
-      
-      if (fecha) {
-        query.fecha = fecha;
-      }
-      
-      if (predictionId) {
-        query.predictionId = predictionId;
-      }
+      try {
+        const { sucursal, fecha, predictionId } = req.query;
+        
+        // Build query based on provided parameters
+        const query: any = {};
+        
+        if (sucursal) {
+          query.sucursal = sucursal;
+        }
+        
+        if (fecha) {
+          query.fecha = fecha;
+        }
+        
+        if (predictionId) {
+          query.predictionId = predictionId;
+        }
 
-      // Verificar que la colección existe
-      const collections = await db.listCollections({ name: feedbackCollection }).toArray();
-      if (collections.length === 0) {
-        console.log('[API] La colección feedback no existe');
+        // Verificar que la colección existe
+        const collections = await db.listCollections({ name: feedbackCollection }).toArray();
+        if (collections.length === 0) {
+          console.log('[API] La colección feedback no existe');
+          return res.status(200).json({
+            success: true,
+            feedback: []
+          });
+        }
+
+        console.log('[API] Consultando colección feedback con filtro:', query);
+        const feedback = await db
+          .collection(feedbackCollection)
+          .find(query)
+          .toArray();
+
+        console.log(`[API] Encontrados ${feedback.length} registros de feedback`);
+        
         return res.status(200).json({
           success: true,
-          feedback: []
+          feedback
+        });
+      } catch (error) {
+        console.error('[API] Error al obtener feedback:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Error al obtener feedback'
         });
       }
-
-      console.log('[API] Consultando colección feedback con filtro:', query);
-      const feedback = await db
-        .collection(feedbackCollection)
-        .find(query)
-        .toArray();
-
-      console.log(`[API] Encontrados ${feedback.length} registros de feedback`);
-      
-      return res.status(200).json({
-        success: true,
-        feedback
-      });
     }
 
     // POST - Guardar nuevo feedback

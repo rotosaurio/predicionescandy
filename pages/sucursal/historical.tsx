@@ -246,7 +246,13 @@ const HistoricalPredictionPage: React.FC = () => {
 
         // Merge feedback data with common products
         const mergedProducts = commonProducts.map(product => {
-            const feedback = feedbackData.find((fb: { producto: string }) => fb.producto === product.nombre);
+          // Match by product name AND predictionId to ensure correct associations
+          const feedback = feedbackData.find((fb: { producto: string; predictionId?: string; fecha?: string }) => 
+            fb.producto === product.nombre && 
+            // Either match specific predictionId or allow backward compatibility for old data
+            (fb.predictionId === historicalPrediction.timestamp || 
+             (!fb.predictionId && fb.fecha === historicalPrediction.date))
+          );
           return feedback ? { ...product, ...feedback } : product;
         });
 

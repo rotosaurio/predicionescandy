@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from 'next/router';
 import ObservationsTable from '../../components/ObservationsTable';
 import { FeedbackProduct } from '../../types/models';
+import { clearCurrentUser } from '../../utils/auth';
 
 const geistSans = localFont({
   src: "../fonts/GeistVF.woff",
@@ -603,6 +604,12 @@ export default function AdvancedPanel() {
     }
   };
 
+  // Add logout handler function
+  const handleLogout = () => {
+    clearCurrentUser();
+    router.push('/login');
+  };
+
   const filteredData = filterHistoricalData();
   const groupedPredictions = groupPredictionsByDate();
 
@@ -630,12 +637,20 @@ export default function AdvancedPanel() {
               }`}>
                 Sistema: {systemStatus === 'online' ? 'En línea' : 'Fuera de línea'}
               </div>
-              <Link 
-                href="/" 
-                className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-2"
-              >
-                ← Volver al inicio
-              </Link>
+              <div className="flex space-x-2">
+                <Link 
+                  href="/" 
+                  className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-2"
+                >
+                  ← Volver al inicio
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                >
+                  Cerrar sesión
+                </button>
+              </div>
             </div>
           </div>
         </div>

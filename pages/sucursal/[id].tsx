@@ -702,10 +702,12 @@ const SucursalPage: React.FC = () => {
                                 {/* Add UniCompra barcode and pack info */}
                                 {uniCompraProduct && (
                                   <div className="mt-1 flex flex-col">
-                               
+                                    <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
+                                      CLAVE PRODUCTO: {uniCompraProduct.CLAVE_ARTICULO || 'N/A'}
+                                    </span>
                                     <div className="flex space-x-4 text-xs text-gray-500 dark:text-gray-400">
-                                    
-                                   
+                            
+                            
                                     </div>
                                   </div>
                                 )}

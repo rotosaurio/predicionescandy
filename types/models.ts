@@ -116,3 +116,59 @@ export interface ApiSuccess<T> {
 }
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiError;
+
+// Activity tracking interfaces
+export interface UserActivityEvent {
+  _id?: string;
+  timestamp: Date;
+  eventType: 'login' | 'logout' | 'interaction' | 'page_view';
+  details?: string;
+  page?: string;
+  idleTime?: number;
+}
+
+export interface UserActivitySession {
+  _id?: string;
+  userId: string;
+  username: string;
+  branch?: string;
+  sessionId: string;
+  startTime: Date;
+  endTime?: Date;
+  events: UserActivityEvent[];
+  totalActiveTime: number;
+  totalIdleTime: number;
+  interactionCount: number;
+  lastPage?: string;
+}
+
+// Add this new interface for daily sessions
+export interface UserDailySession {
+  _id?: string;
+  userId: string;
+  username: string;
+  branch?: string;
+  sessionDate: string;
+  startTime: Date;
+  endTime?: Date;
+  sessionIds: string[];
+  events: UserActivityEvent[];
+  totalActiveTime: number;
+  totalIdleTime: number;
+  interactionCount: number;
+  lastUpdated: Date;
+}
+
+export interface UserActivityStats {
+  userId: string;
+  username: string;
+  branch?: string;
+  totalSessions: number; // Now represents days of activity
+  totalActiveTime: number;
+  totalIdleTime: number;
+  totalInteractions: number;
+  averageSessionDuration: number; // Average duration per day
+  averageActiveTimePerSession: number; // Average active time per day
+  lastActive: Date;
+  mostVisitedPages: Array<{page: string, count: number}>;
+}

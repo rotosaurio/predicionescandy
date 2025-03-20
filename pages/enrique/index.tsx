@@ -7,6 +7,8 @@ import { useRouter } from 'next/router';
 import ObservationsTable from '../../components/ObservationsTable';
 import { FeedbackProduct } from '../../types/models';
 import { clearCurrentUser } from '../../utils/auth';
+import { getActivityTracker } from '../../utils/activityTracker';
+import UserActivityStats from '../../components/UserActivityStats';
 
 const geistSans = localFont({
   src: "../fonts/GeistVF.woff",
@@ -90,8 +92,15 @@ export default function AdvancedPanel() {
   const [uniqueFechas, setUniqueFechas] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedPredictionGroups, setExpandedPredictionGroups] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<'predictions' | 'feedback' | 'userActivity'>('predictions');
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const activityTracker = getActivityTracker();
+      activityTracker.startTracking();
+      activityTracker.recordPageView('Advanced Panel');
+    }
+
     const fetchInitialData = async () => {
       try {
         setLoading(true);
@@ -127,6 +136,13 @@ export default function AdvancedPanel() {
     };
 
     fetchInitialData();
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        const activityTracker = getActivityTracker();
+        activityTracker.stopTracking();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -707,346 +723,387 @@ export default function AdvancedPanel() {
               </div>
             </div>
             
-            {/* Estadísticas por Sucursal */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Estadísticas por Sucursal</h2>
+            {/* Navigation Tabs */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              <div className="border-b border-gray-200 dark:border-gray-700">
+                <nav className="flex -mb-px">
+                  <button
+                    onClick={() => setActiveTab('predictions')}
+                    className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
+                      activeTab === 'predictions'
+                        ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    }`}
+                  >
+                    Predicciones
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('feedback')}
+                    className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
+                      activeTab === 'feedback'
+                        ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    }`}
+                  >
+                    Feedback
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('userActivity')}
+                    className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
+                      activeTab === 'userActivity'
+                        ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    }`}
+                  >
+                    Actividad de Usuarios
+                  </button>
+                </nav>
               </div>
+              
               <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {branchStats.map((branch) => (
-                    <div 
-                      key={branch.name}
-                      className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden"
-                    >
-                      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                        <div className="flex justify-between items-center">
-                          <h3 className="font-semibold text-gray-900 dark:text-white">{branch.name}</h3>
-                          <Link
-                            href={`/sucursal/${encodeURIComponent(branch.name)}`}
-                            className="text-sm text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                {activeTab === 'predictions' && (
+                  <div className="space-y-8">
+                    {/* Estadísticas por Sucursal */}
+                    <div className="space-y-6">
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Estadísticas por Sucursal</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {branchStats.map((branch) => (
+                          <div 
+                            key={branch.name}
+                            className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden"
                           >
-                            Ver detalle
-                          </Link>
-                        </div>
+                            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                              <div className="flex justify-between items-center">
+                                <h3 className="font-semibold text-gray-900 dark:text-white">{branch.name}</h3>
+                                <Link
+                                  href={`/sucursal/${encodeURIComponent(branch.name)}`}
+                                  className="text-sm text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                                >
+                                  Ver detalle
+                                </Link>
+                              </div>
+                            </div>
+                            
+                            <div className="p-4">
+                              <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Predicciones</p>
+                                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{branch.predictionsCount}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Confianza Promedio</p>
+                                  <p className={`text-lg font-semibold ${getConfidenceClass(branch.averageConfidence)}`}>
+                                    {branch.averageConfidence.toFixed(1)}%
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Top Productos</p>
+                              {branch.topProducts.length > 0 ? (
+                                <ul className="text-sm space-y-1">
+                                  {branch.topProducts.map((product, index) => (
+                                    <li key={index} className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-800">
+                                      <span className="text-gray-800 dark:text-gray-200 truncate" style={{ maxWidth: '170px' }}>
+                                        {product.name}
+                                      </span>
+                                      <span className={`${getConfidenceClass(product.confidence)}`}>
+                                        {product.confidence.toFixed(1)}%
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-sm text-gray-500 dark:text-gray-400">No hay productos disponibles</p>
+                              )}
+                              
+                              <div className="mt-4 pt-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400">
+                                Última actualización: {format(new Date(branch.lastUpdate), "dd/MM/yyyy HH:mm")}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       
-                      <div className="p-4">
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                          <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Predicciones</p>
-                            <p className="text-lg font-semibold text-gray-900 dark:text-white">{branch.predictionsCount}</p>
+                      {branchStats.length === 0 && (
+                        <p className="text-center py-4 text-gray-500 dark:text-gray-400">
+                          No hay datos estadísticos disponibles para los filtros seleccionados.
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* Historial detallado */}
+                    <div className="space-y-6">
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Historial de Predicciones</h2>
+                      <div className="space-y-2">
+                        {groupedPredictions.length > 0 ? (
+                          <div className="space-y-2">
+                            {groupedPredictions.map((group, index) => {
+                              const groupId = `prediction-date-${group.date}-${index}`;
+                              const isExpanded = !!expandedPredictionGroups[groupId];
+                              const totalPredictions = group.predictions.reduce((acc, curr) => acc + (curr.predictions?.length || 0), 0);
+                              
+                              return (
+                                <div key={groupId} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                  {/* Clickable header */}
+                                  <div 
+                                    className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50"
+                                    onClick={() => togglePredictionGroupExpansion(groupId)}
+                                  >
+                                    <h3 className="text-md font-semibold text-gray-900 dark:text-white flex items-center">
+                                      <svg 
+                                        className={`h-5 w-5 mr-1.5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                                        xmlns="http://www.w3.org/2000/svg" 
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                      >
+                                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                      Fecha: {group.formattedDate} ({group.predictions.length} {group.predictions.length === 1 ? 'predicción' : 'predicciones'})
+                                    </h3>
+                                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 py-0.5 px-2 rounded-full">
+                                      {totalPredictions} {totalPredictions === 1 ? 'producto' : 'productos'} predichos
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Expandable content */}
+                                  {isExpanded && (
+                                    <div className="border-t border-gray-200 dark:border-gray-700">
+                                      {group.predictions.map((prediction, predIndex) => {
+                                        // Calculate average confidence
+                                        const predictions = prediction.predictions || [];
+                                        let totalConfidence = 0;
+                                        predictions.forEach(p => {
+                                          totalConfidence += p.confianza;
+                                        });
+                                        const avgConfidence = predictions.length > 0 ? totalConfidence / predictions.length : 0;
+                                        
+                                        return (
+                                          <div key={`${prediction.branch}-${prediction.timestamp}-${predIndex}`} 
+                                               className="p-4 hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                                            <div className="flex flex-wrap justify-between items-center mb-3">
+                                              <div className="mr-4">
+                                                <h4 className="font-medium text-gray-900 dark:text-white">{prediction.branch}</h4>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                                  {format(new Date(prediction.timestamp), "dd/MM/yyyy HH:mm:ss")}
+                                                </p>
+                                              </div>
+                                              <div className="flex items-center">
+                                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">
+                                                  Confianza promedio: 
+                                                </span>
+                                                <span className={`text-sm font-medium ${getConfidenceClass(avgConfidence)}`}>
+                                                  {avgConfidence.toFixed(1)}%
+                                                </span>
+                                              </div>
+                                            </div>
+                                            
+                                            <div className="flex flex-wrap justify-between">
+                                              <div>
+                                                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                                  Productos: {predictions.length}
+                                                </span>
+                                                {prediction.recommendations && (
+                                                  <span className="ml-4 text-xs font-medium text-gray-500 dark:text-gray-400">
+                                                    Recomendaciones: {prediction.recommendations.length}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <button
+                                                onClick={() => viewPredictionDetails(prediction.branch, prediction.date)}
+                                                className="text-sm text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
+                                              >
+                                                Ver detalles completos
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Confianza Promedio</p>
-                            <p className={`text-lg font-semibold ${getConfidenceClass(branch.averageConfidence)}`}>
-                              {branch.averageConfidence.toFixed(1)}%
+                        ) : (
+                          <div className="text-center py-12">
+                            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                            </svg>
+                            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay predicciones</h3>
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                              No se encontraron predicciones que coincidan con los filtros aplicados.
                             </p>
                           </div>
-                        </div>
-                        
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Top Productos</p>
-                        {branch.topProducts.length > 0 ? (
-                          <ul className="text-sm space-y-1">
-                            {branch.topProducts.map((product, index) => (
-                              <li key={index} className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-800">
-                                <span className="text-gray-800 dark:text-gray-200 truncate" style={{ maxWidth: '170px' }}>
-                                  {product.name}
-                                </span>
-                                <span className={`${getConfidenceClass(product.confidence)}`}>
-                                  {product.confidence.toFixed(1)}%
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-gray-500 dark:text-gray-400">No hay productos disponibles</p>
                         )}
-                        
-                        <div className="mt-4 pt-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400">
-                          Última actualización: {format(new Date(branch.lastUpdate), "dd/MM/yyyy HH:mm")}
-                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-                
-                {branchStats.length === 0 && (
-                  <p className="text-center py-4 text-gray-500 dark:text-gray-400">
-                    No hay datos estadísticos disponibles para los filtros seleccionados.
-                  </p>
-                )}
-              </div>
-            </div>
-            
-            {/* Historial detallado */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Historial de Predicciones</h2>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    Mostrando {filteredData.length} de {historicalData.length} predicciones
-                  </span>
-                </div>
-              </div>
-              
-              <div className="p-6">
-                {groupedPredictions.length > 0 ? (
-                  <div className="space-y-2">
-                    {groupedPredictions.map((group, index) => {
-                      const groupId = `prediction-date-${group.date}-${index}`;
-                      const isExpanded = !!expandedPredictionGroups[groupId];
-                      const totalPredictions = group.predictions.reduce((acc, curr) => acc + (curr.predictions?.length || 0), 0);
-                      
-                      return (
-                        <div key={groupId} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                          {/* Clickable header */}
-                          <div 
-                            className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50"
-                            onClick={() => togglePredictionGroupExpansion(groupId)}
-                          >
-                            <h3 className="text-md font-semibold text-gray-900 dark:text-white flex items-center">
-                              <svg 
-                                className={`h-5 w-5 mr-1.5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
-                                xmlns="http://www.w3.org/2000/svg" 
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                              >
-                                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                              </svg>
-                              Fecha: {group.formattedDate} ({group.predictions.length} {group.predictions.length === 1 ? 'predicción' : 'predicciones'})
-                            </h3>
-                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 py-0.5 px-2 rounded-full">
-                              {totalPredictions} {totalPredictions === 1 ? 'producto' : 'productos'} predichos
-                            </span>
-                          </div>
-                          
-                          {/* Expandable content */}
-                          {isExpanded && (
-                            <div className="border-t border-gray-200 dark:border-gray-700">
-                              {group.predictions.map((prediction, predIndex) => {
-                                // Calculate average confidence
-                                const predictions = prediction.predictions || [];
-                                let totalConfidence = 0;
-                                predictions.forEach(p => {
-                                  totalConfidence += p.confianza;
-                                });
-                                const avgConfidence = predictions.length > 0 ? totalConfidence / predictions.length : 0;
-                                
-                                return (
-                                  <div key={`${prediction.branch}-${prediction.timestamp}-${predIndex}`} 
-                                       className="p-4 hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
-                                    <div className="flex flex-wrap justify-between items-center mb-3">
-                                      <div className="mr-4">
-                                        <h4 className="font-medium text-gray-900 dark:text-white">{prediction.branch}</h4>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                                          {format(new Date(prediction.timestamp), "dd/MM/yyyy HH:mm:ss")}
-                                        </p>
-                                      </div>
-                                      <div className="flex items-center">
-                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">
-                                          Confianza promedio: 
-                                        </span>
-                                        <span className={`text-sm font-medium ${getConfidenceClass(avgConfidence)}`}>
-                                          {avgConfidence.toFixed(1)}%
-                                        </span>
-                                      </div>
-                                    </div>
-                                    
-                                    <div className="flex flex-wrap justify-between">
-                                      <div>
-                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                          Productos: {predictions.length}
-                                        </span>
-                                        {prediction.recommendations && (
-                                          <span className="ml-4 text-xs font-medium text-gray-500 dark:text-gray-400">
-                                            Recomendaciones: {prediction.recommendations.length}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <button
-                                        onClick={() => viewPredictionDetails(prediction.branch, prediction.date)}
-                                        className="text-sm text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
-                                      >
-                                        Ver detalles completos
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                    </svg>
-                    <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay predicciones</h3>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      No se encontraron predicciones que coincidan con los filtros aplicados.
-                    </p>
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* Filtros y controles - MOVED HERE */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Filtros de Feedback</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Filtro por sucursal */}
-                <div>
-                  <label htmlFor="filterSucursal" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Sucursal
-                  </label>
-                  <select
-                    id="filterSucursal"
-                    value={filterSucursal}
-                    onChange={(e) => setFilterSucursal(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">Todas las sucursales</option>
-                    {uniqueSucursales.map((sucursal) => (
-                      <option key={sucursal} value={sucursal}>{sucursal}</option>
-                    ))}
-                  </select>
-                </div>
                 
-                {/* Filtro por fecha */}
-                <div>
-                  <label htmlFor="filterFecha" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Fecha
-                  </label>
-                  <select
-                    id="filterFecha"
-                    value={filterFecha}
-                    onChange={(e) => setFilterFecha(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">Todas las fechas</option>
-                    {uniqueFechas.map((fecha) => (
-                      <option key={fecha} value={fecha}>{fecha}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                {/* Filtro por producto */}
-                <div>
-                  <label htmlFor="filterProducto" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Producto
-                  </label>
-                  <input
-                    type="text"
-                    id="filterProducto"
-                    value={filterProducto}
-                    onChange={(e) => setFilterProducto(e.target.value)}
-                    placeholder="Filtrar por nombre de producto"
-                    className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
-                  />
-                </div>
-              </div>
-              
-              {/* Clear filters button */}
-              {(filterSucursal || filterFecha || filterProducto) && (
-                <div className="mt-3">
-                  <button
-                    onClick={() => {
-                      setFilterSucursal('');
-                      setFilterFecha('');
-                      setFilterProducto('');
-                    }}
-                    className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
-                  >
-                    Limpiar todos los filtros
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Tabla de Observaciones */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Feedback por Sucursal y Fecha</h2>
-              
-              {/* Filter summary and stats */}
-              <div className="mt-2 mb-6 text-sm text-gray-500 dark:text-gray-400">
-                {(() => {
-                  const filteredData = getFilteredFeedbackData();
-                  const totalObservations = filteredData.reduce((acc, curr) => acc + curr.feedback.length, 0);
-                  
-                  return (
+                {activeTab === 'feedback' && (
+                  <div className="space-y-6">
+                    {/* Filtros y controles */}
                     <div>
-                      <p>
-                        {filteredData.length} {filteredData.length === 1 ? 'grupo' : 'grupos'} de feedback con {totalObservations} {totalObservations === 1 ? 'observación' : 'observaciones'}
-                        {(filterSucursal || filterFecha || filterProducto) ? " coinciden con los filtros aplicados" : ""}
-                      </p>
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Filtros de Feedback</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Filtro por sucursal */}
+                        <div>
+                          <label htmlFor="filterSucursal" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Sucursal
+                          </label>
+                          <select
+                            id="filterSucursal"
+                            value={filterSucursal}
+                            onChange={(e) => setFilterSucursal(e.target.value)}
+                            className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="">Todas las sucursales</option>
+                            {uniqueSucursales.map((sucursal) => (
+                              <option key={sucursal} value={sucursal}>{sucursal}</option>
+                            ))}
+                          </select>
+                        </div>
+                        
+                        {/* Filtro por fecha */}
+                        <div>
+                          <label htmlFor="filterFecha" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Fecha
+                          </label>
+                          <select
+                            id="filterFecha"
+                            value={filterFecha}
+                            onChange={(e) => setFilterFecha(e.target.value)}
+                            className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="">Todas las fechas</option>
+                            {uniqueFechas.map((fecha) => (
+                              <option key={fecha} value={fecha}>{fecha}</option>
+                            ))}
+                          </select>
+                        </div>
+                        
+                        {/* Filtro por producto */}
+                        <div>
+                          <label htmlFor="filterProducto" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Producto
+                          </label>
+                          <input
+                            type="text"
+                            id="filterProducto"
+                            value={filterProducto}
+                            onChange={(e) => setFilterProducto(e.target.value)}
+                            placeholder="Filtrar por nombre de producto"
+                            className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Clear filters button */}
                       {(filterSucursal || filterFecha || filterProducto) && (
-                        <div className="mt-1">
-                          <span className="font-medium">Filtros activos:</span>
-                          {filterSucursal && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Sucursal: {filterSucursal}</span>}
-                          {filterFecha && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Fecha: {filterFecha}</span>}
-                          {filterProducto && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">Producto: {filterProducto}</span>}
+                        <div className="mt-3">
+                          <button
+                            onClick={() => {
+                              setFilterSucursal('');
+                              setFilterFecha('');
+                              setFilterProducto('');
+                            }}
+                            className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                          >
+                            Limpiar todos los filtros
+                          </button>
                         </div>
                       )}
                     </div>
-                  );
-                })()}
-              </div>
-              
-              {/* List of feedback groups */}
-              <div className="space-y-2">
-                {getFilteredFeedbackData().length > 0 ? (
-                  getFilteredFeedbackData().map((data, index) => {
-                    const groupId = `${data.sucursal}-${data.fecha}-${index}`;
-                    const isExpanded = !!expandedGroups[groupId];
                     
-                    return (
-                      <div key={index} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                        {/* Clickable header */}
-                        <div 
-                          className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50"
-                          onClick={() => toggleGroupExpansion(groupId)}
-                        >
-                          <h3 className="text-md font-semibold text-gray-900 dark:text-white flex items-center">
-                            <svg 
-                              className={`h-5 w-5 mr-1.5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
-                              xmlns="http://www.w3.org/2000/svg" 
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                            >
-                              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    {/* Tabla de Observaciones */}
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Feedback por Sucursal y Fecha</h2>
+                      {/* Filter summary and stats */}
+                      <div className="mt-2 mb-6 text-sm text-gray-500 dark:text-gray-400">
+                        {(() => {
+                          const filteredData = getFilteredFeedbackData();
+                          const totalObservations = filteredData.reduce((acc, curr) => acc + curr.feedback.length, 0);
+                          
+                          return (
+                            <div>
+                              <p>
+                                {filteredData.length} {filteredData.length === 1 ? 'grupo' : 'grupos'} de feedback con {totalObservations} {totalObservations === 1 ? 'observación' : 'observaciones'}
+                                {(filterSucursal || filterFecha || filterProducto) ? " coinciden con los filtros aplicados" : ""}
+                              </p>
+                              {(filterSucursal || filterFecha || filterProducto) && (
+                                <div className="mt-1">
+                                  <span className="font-medium">Filtros activos:</span>
+                                  {filterSucursal && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Sucursal: {filterSucursal}</span>}
+                                  {filterFecha && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Fecha: {filterFecha}</span>}
+                                  {filterProducto && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">Producto: {filterProducto}</span>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      
+                      {/* List of feedback groups */}
+                      <div className="space-y-2">
+                        {getFilteredFeedbackData().length > 0 ? (
+                          getFilteredFeedbackData().map((data, index) => {
+                            const groupId = `${data.sucursal}-${data.fecha}-${index}`;
+                            const isExpanded = !!expandedGroups[groupId];
+                            
+                            return (
+                              <div key={index} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                {/* Clickable header */}
+                                <div 
+                                  className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600/50"
+                                  onClick={() => toggleGroupExpansion(groupId)}
+                                >
+                                  <h3 className="text-md font-semibold text-gray-900 dark:text-white flex items-center">
+                                    <svg 
+                                      className={`h-5 w-5 mr-1.5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                                      xmlns="http://www.w3.org/2000/svg" 
+                                      viewBox="0 0 20 20"
+                                      fill="currentColor"
+                                    >
+                                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    Sucursal: {data.sucursal} - Fecha: {data.fecha}
+                                  </h3>
+                                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 py-0.5 px-2 rounded-full">
+                                    {data.feedback.length} {data.feedback.length === 1 ? 'observación' : 'observaciones'}
+                                  </span>
+                                </div>
+                                
+                                {/* Expandable content */}
+                                {isExpanded && (
+                                  <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                                    <ObservationsTable observations={data.feedback} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-8">
+                            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M9 16h.01M15 16h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Sucursal: {data.sucursal} - Fecha: {data.fecha}
-                          </h3>
-                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 py-0.5 px-2 rounded-full">
-                            {data.feedback.length} {data.feedback.length === 1 ? 'observación' : 'observaciones'}
-                          </span>
-                        </div>
-                        
-                        {/* Expandable content */}
-                        {isExpanded && (
-                          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-                            <ObservationsTable observations={data.feedback} />
+                            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay feedback disponible</h3>
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                              {feedbackData.length > 0 
+                                ? "No se encontraron datos que coincidan con los filtros seleccionados." 
+                                : "No hay feedback disponible en el sistema."}
+                            </p>
                           </div>
                         )}
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-center py-8">
-                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M9 16h.01M15 16h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay feedback disponible</h3>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      {feedbackData.length > 0 
-                        ? "No se encontraron datos que coincidan con los filtros seleccionados." 
-                        : "No hay feedback disponible en el sistema."}
-                    </p>
+                    </div>
+                  </div>
+                )}
+                
+                {activeTab === 'userActivity' && (
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Análisis de Actividad de Usuarios</h2>
+                    <UserActivityStats showAll={true} />
                   </div>
                 )}
               </div>

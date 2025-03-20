@@ -10,12 +10,23 @@ import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
 import { getDisplayBranchName } from '../../utils/branchMapping';
 import { useAppStore } from '../../utils/store';
 import StatusIndicator from '../../components/StatusIndicator';
+import { getActivityTracker } from '../../utils/activityTracker';
 
 // Interface for inventory data
 interface InventoryData {
   articulo: string;
   existencia: number;
   disponible: boolean;
+}
+
+// Add this new interface for UniCompra product data
+interface UniCompraProduct {
+  _id: string;
+  ARTICULO_ID: number;
+  NOMBRE: string;
+  CLAVE_ARTICULO: string;
+  CONTENIDO_UNIDAD_COMPRA: number;
+  ESTATUS: string;
 }
 
 interface CommonProduct {
@@ -74,6 +85,8 @@ const SucursalPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loadingFeedback, setLoadingFeedback] = useState<{[key: string]: boolean}>({});
   const [inventory, setInventory] = useState<Record<string, InventoryData>>({});
+  // Add new state for UniCompra products
+  const [uniCompraProducts, setUniCompraProducts] = useState<UniCompraProduct[]>([]);
   
   // Function to toggle product expansion
   const toggleProductExpansion = (productName: string) => {
@@ -225,6 +238,13 @@ const SucursalPage: React.FC = () => {
   useEffect(() => {
     if (!id || !router.isReady) return;
 
+    // Start activity tracking when the component mounts
+    if (typeof window !== 'undefined') {
+      const activityTracker = getActivityTracker();
+      activityTracker.startTracking();
+      activityTracker.recordPageView(`Branch: ${id}`);
+    }
+
     const fetchData = async () => {
       try {
         setLoading(true);
@@ -311,6 +331,9 @@ const SucursalPage: React.FC = () => {
           console.error("Error fetching inventory data:", err);
         });
         
+        // Add this: Fetch UniCompra product data
+        await fetchUniCompraProducts();
+        
       } catch (err) {
         console.error('Error al cargar datos:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar datos');
@@ -319,6 +342,14 @@ const SucursalPage: React.FC = () => {
     };
 
     fetchData();
+
+    // Stop activity tracking when the component unmounts
+    return () => {
+      if (typeof window !== 'undefined') {
+        const activityTracker = getActivityTracker();
+        activityTracker.stopTracking();
+      }
+    };
   }, [id, router.isReady]);
 
   // Fetch inventory data ONLY for common products (those that appear in the final table)
@@ -406,6 +437,56 @@ const SucursalPage: React.FC = () => {
       // We still set inventory to whatever we've collected so far
       setInventory({});
     }
+  };
+
+  // Add new function to fetch UniCompra products
+  const fetchUniCompraProducts = async () => {
+    try {
+      const response = await fetch('/api/unicompra-products');
+      
+      if (!response.ok) {
+        console.error('Error fetching UniCompra products:', response.statusText);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && Array.isArray(data.products)) {
+        setUniCompraProducts(data.products);
+        console.log(`Loaded ${data.products.length} UniCompra products`);
+      }
+    } catch (error) {
+      console.error('Error fetching UniCompra products:', error);
+    }
+  };
+
+  // Add helper function to find matching UniCompra product
+  const findUniCompraProduct = (productName: string): UniCompraProduct | null => {
+    // First try an exact match
+    let match = uniCompraProducts.find(p => 
+      p.NOMBRE.toLowerCase() === productName.toLowerCase()
+    );
+    
+    // If no exact match, try a fuzzy match (product name contains UniCompra name or vice versa)
+    if (!match) {
+      match = uniCompraProducts.find(p => 
+        p.NOMBRE.toLowerCase().includes(productName.toLowerCase()) || 
+        productName.toLowerCase().includes(p.NOMBRE.toLowerCase())
+      );
+    }
+    
+    return match || null;
+  };
+  
+  // Add helper to calculate pack quantity
+  const calculatePackQuantity = (quantity: number, packSize: number): string => {
+    if (!packSize || packSize <= 0) return 'N/A';
+    
+    const packs = quantity / packSize;
+    // If it's a whole number, show it as is
+    if (packs % 1 === 0) return packs.toString();
+    // Otherwise show with 2 decimal places
+    return packs.toFixed(2);
   };
 
   // Handle feedback submission for common products
@@ -598,12 +679,14 @@ const SucursalPage: React.FC = () => {
                       // Get inventory data for this product
                       const inventoryItem = inventory[product.nombre];
                       
+                      // Get matching UniCompra product
+                      const uniCompraProduct = findUniCompraProduct(product.nombre);
+                      
                       return (
                         <div key={index} className="bg-white dark:bg-gray-800">
                           {/* Cabecera del producto (siempre visible) */}
                           <div 
-                            className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                            onClick={() => toggleProductExpansion(product.nombre)}
+                            className="px-6 py-4 flex items-center justify-between"
                           >
                             <div className="flex items-center space-x-3">
                               <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center bg-indigo-100 dark:bg-indigo-900/30">
@@ -615,12 +698,29 @@ const SucursalPage: React.FC = () => {
                                 <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate max-w-xs md:max-w-md">
                                   {product.nombre}
                                 </h3>
+                                
+                                {/* Add UniCompra barcode and pack info */}
+                                {uniCompraProduct && (
+                                  <div className="mt-1 flex flex-col">
+                               
+                                    <div className="flex space-x-4 text-xs text-gray-500 dark:text-gray-400">
+                                    
+                                   
+                                    </div>
+                                  </div>
+                                )}
+                                
                                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 flex items-center">
                                   <span>
-                                    Pred: {product.cantidadPredicha?.toLocaleString() || 0} | Rec: {product.cantidadSugerida?.toLocaleString() || 0} | Prom: {product.cantidadPromedio?.toLocaleString() || 0}
+                                     Cajas Recomendadas: {uniCompraProduct ? 
+                                        calculatePackQuantity(
+                                          product.cantidadSugerida || 0, 
+                                          uniCompraProduct.CONTENIDO_UNIDAD_COMPRA
+                                        ) : 'N/A'}
                                   </span>
                                 </p>
                               </div>
+                              
                               {/* Only show the button if feedback doesn't exist (ordenado is undefined) */}
                               {product.ordenado === undefined && (
                                 <button
@@ -635,15 +735,24 @@ const SucursalPage: React.FC = () => {
                                 </button>
                               )}
                             </div>
+                            
                             <div className="flex items-center gap-2">
-                              {/* Add inventory status before confidence level - UPDATED TEXT */}
+                              {/* Inventory status - Modified to show boxes instead of pieces */}
                               {inventoryItem ? (
                                 <div className="flex items-center bg-gray-50 dark:bg-gray-700 rounded-lg px-2 py-1">
                                   <div className={`w-2 h-2 rounded-full ${
                                     inventoryItem.disponible ? 'bg-green-500' : 'bg-red-500'
                                   }`}></div>
                                   <span className="ml-1.5 text-xs font-medium text-gray-700 dark:text-gray-300">
-                                    {inventoryItem.existencia > 0 ? `${inventoryItem.existencia} pz en CEDIS` : 'No disponible en CEDIS'}
+                                    {inventoryItem.existencia > 0 ? (
+                                      <>
+                                        {uniCompraProduct ? (
+                                          <>{calculatePackQuantity(inventoryItem.existencia, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA)} cajas en CEDIS</>
+                                        ) : (
+                                          <>{inventoryItem.existencia} pz en CEDIS</>
+                                        )}
+                                      </>
+                                    ) : 'No disponible en CEDIS'}
                                   </span>
                                 </div>
                               ) : (
@@ -656,336 +765,8 @@ const SucursalPage: React.FC = () => {
                                 {getConfidenceLevel(product.confianzaPrediccion)}
                               </span>
                               {renderOrderStatus(product)}
-                              <svg 
-                                className={`h-5 w-5 text-gray-400 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
-                                xmlns="http://www.w3.org/2000/svg" 
-                                viewBox="0 0 20 20" 
-                                fill="currentColor"
-                              >
-                                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                              </svg>
                             </div>
                           </div>
-                          
-                          {/* Detalles expandibles */}
-                          {isExpanded && (
-                            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
-                              {/* Add Inventory CEDIS section - this is the new section */}
-                              <div className="mb-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
-                                  Inventario CEDIS
-                                </h4>
-                                
-                                {inventoryItem ? (
-                                  <div className="flex items-center">
-                                    <div className={`w-3 h-3 rounded-full mr-3 ${
-                                      inventoryItem.disponible ? 'bg-green-500' : 'bg-red-500'
-                                    }`}></div>
-                                    <div>
-                                      <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                        {inventoryItem.disponible 
-                                          ? `Disponible (${inventoryItem.existencia} piezas en CEDIS)` 
-                                          : 'No disponible en CEDIS'}
-                                      </span>
-                                      {inventoryItem.disponible && (
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                          {inventoryItem.existencia >= (product.cantidadPromedio || 0)
-                                            ? 'Hay suficiente inventario para este pedido'
-                                            : 'Inventario insuficiente para la cantidad recomendada'}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                                    No se encontró información de inventario para este producto en CEDIS
-                                  </div>
-                                )}
-                              </div>
-                              
-                              {/* Existing sections */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Columna de predicción */}
-                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                  <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
-                                    Predicción
-                                  </h4>
-                                  <div className="space-y-2">
-                                    <div className="flex justify-between">
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">Cantidad predicha:</span>
-                                      <span className="text-sm font-medium text-gray-900 dark:text-white">{product.cantidadPredicha?.toLocaleString() || 0}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">Confianza:</span>
-                                      <span className={`text-sm font-medium ${getConfidenceClass(product.confianzaPrediccion)}`}>
-                                        {product.confianzaPrediccion.toFixed(1)}%
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">Nivel de confianza:</span>
-                                      <span className={`text-sm font-medium ${getConfidenceClass(product.confianzaPrediccion)}`}>
-                                        {getConfidenceLevel(product.confianzaPrediccion)}
-                                      </span>
-                                    </div>
-                                    {product.articulo_id && (
-                                      <div className="flex justify-between">
-                                        <span className="text-sm text-gray-500 dark:text-gray-400">ID de artículo:</span>
-                                        <span className="text-sm font-mono text-gray-900 dark:text-white">{product.articulo_id}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                
-                                {/* Columna de recomendación */}
-                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                  <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
-                                    Recomendación
-                                  </h4>
-                                  <div className="space-y-2">
-                                    <div className="flex justify-between">
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">Cantidad sugerida:</span>
-                                      <span className="text-sm font-medium text-gray-900 dark:text-white">{product.cantidadSugerida?.toLocaleString() || 0}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">Confianza:</span>
-                                      <span className={`text-sm font-medium ${getConfidenceClass(product.confianzaRecomendacion)}`}>
-                                        {product.confianzaRecomendacion.toFixed(1)}%
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-sm text-gray-500 dark:text-gray-400">Tipo:</span>
-                                      <span className="text-sm font-medium text-blue-600 dark:text-blue-400">{product.tipo}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              {/* Sección de motivo de la recomendación */}
-                              {product.motivo && (
-                                <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                  <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
-                                    Motivo de la Recomendación
-                                  </h4>
-                                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                                    {product.motivo}
-                                  </p>
-                                </div>
-                              )}
-                              
-                              {/* Sección de detalles adicionales de la recomendación */}
-                              {(product.tipo_recomendacion || product.frecuencia_otras || product.num_sucursales || product.nivel_recomendacion || product.pedidos_recientes_otras) && (
-                                <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                  <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
-                                    Detalles Adicionales de la Recomendación
-                                  </h4>
-                                  <div className="space-y-4">
-                                    {/* Rango de cantidad */}
-                                    {(product.min_cantidad !== undefined || product.max_cantidad !== undefined) && (
-                                      <div>
-                                        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Rango de Cantidad Recomendada</h5>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          {product.min_cantidad !== undefined && (
-                                            <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Mínimo:</span>
-                                              <span className="text-sm font-bold text-gray-900 dark:text-white">{product.min_cantidad}</span>
-                                            </div>
-                                          )}
-                                          {product.max_cantidad !== undefined && (
-                                            <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Máximo:</span>
-                                              <span className="text-sm font-bold text-gray-900 dark:text-white">{product.max_cantidad}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Tipo y nivel de recomendación */}
-                                    {(product.tipo_recomendacion || product.nivel_recomendacion !== undefined) && (
-                                      <div>
-                                        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Clasificación</h5>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          {product.tipo_recomendacion && (
-                                            <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Tipo:</span>
-                                              <span className="text-sm font-medium text-blue-600 dark:text-blue-400">{product.tipo_recomendacion}</span>
-                                            </div>
-                                          )}
-                                          {product.nivel_recomendacion !== undefined && (
-                                            <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Nivel:</span>
-                                              <div className="flex items-center mt-1">
-                                                {Array.from({ length: 5 }).map((_, i) => (
-                                                  <svg 
-                                                    key={i}
-                                                    className={`w-4 h-4 ${i < product.nivel_recomendacion! ? 'text-yellow-400' : 'text-gray-300 dark:text-gray-600'}`}
-                                                    fill="currentColor" 
-                                                    viewBox="0 0 20 20"
-                                                  >
-                                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                                  </svg>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Datos sobre otras sucursales */}
-                                    {(product.frecuencia_otras !== undefined || product.num_sucursales !== undefined) && (
-                                      <div>
-                                        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Datos de Otras Sucursales</h5>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          {product.frecuencia_otras !== undefined && (
-                                            <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Frecuencia:</span>
-                                              <span className="text-sm font-medium">{(product.frecuencia_otras * 100).toFixed(1)}%</span>
-                                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">de las sucursales</span>
-                                            </div>
-                                          )}
-                                          {product.num_sucursales !== undefined && (
-                                            <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Número de Sucursales:</span>
-                                              <span className="text-sm font-medium text-gray-900 dark:text-white">{product.num_sucursales}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Último pedido */}
-                                    {(product.ultima_fecha_pedido || product.dias_desde_ultimo_pedido !== undefined || product.cantidad_ultimo_pedido !== undefined) && (
-                                      <div>
-                                        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Último Pedido</h5>
-                                        <div className="bg-gray-50 dark:bg-gray-800/60 rounded p-3">
-                                          {product.ultima_fecha_pedido && (
-                                            <div className="mb-2">
-                                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Fecha:</span>
-                                              <span className="text-sm font-medium text-gray-900 dark:text-white">{product.ultima_fecha_pedido}</span>
-                                            </div>
-                                          )}
-                                          <div className="grid grid-cols-2 gap-2">
-                                            {product.dias_desde_ultimo_pedido !== undefined && (
-                                              <div>
-                                                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Hace:</span>
-                                                <span className="text-sm font-medium text-gray-900 dark:text-white">{product.dias_desde_ultimo_pedido} días</span>
-                                              </div>
-                                            )}
-                                            {product.cantidad_ultimo_pedido !== undefined && (
-                                              <div>
-                                                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block">Cantidad:</span>
-                                                <span className="text-sm font-medium text-gray-900 dark:text-white">{product.cantidad_ultimo_pedido}</span>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Pedidos recientes en otras sucursales */}
-                                    {product.pedidos_recientes_otras && product.pedidos_recientes_otras.length > 0 && (
-                                      <div>
-                                        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                                          Pedidos Recientes en Otras Sucursales
-                                        </h5>
-                                        <div className="overflow-x-auto">
-                                          <table className="min-w-full text-xs">
-                                            <thead className="bg-gray-50 dark:bg-gray-800/60">
-                                              <tr>
-                                                <th className="px-2 py-1 text-left text-gray-500 dark:text-gray-400 font-medium">Sucursal</th>
-                                                <th className="px-2 py-1 text-left text-gray-500 dark:text-gray-400 font-medium">Días</th>
-                                                <th className="px-2 py-1 text-left text-gray-500 dark:text-gray-400 font-medium">Cantidad</th>
-                                              </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                              {product.pedidos_recientes_otras.map((pedido, idx) => (
-                                                <tr key={idx} className="bg-white dark:bg-gray-800/30">
-                                                  <td className="px-2 py-1 text-gray-900 dark:text-white">{pedido.sucursal}</td>
-                                                  <td className="px-2 py-1 text-gray-900 dark:text-white">{pedido.dias_desde_pedido}</td>
-                                                  <td className="px-2 py-1 text-gray-900 dark:text-white">{pedido.cantidad}</td>
-                                                </tr>
-                                              ))}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {/* Sección de análisis comparativo */}
-                              <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">
-                                  Análisis Comparativo
-                                </h4>
-                                <div className="space-y-2">
-                                  <div className="flex justify-between">
-                                    <span className="text-sm text-gray-500 dark:text-gray-400">Diferencia absoluta:</span>
-                                    <span className={`text-sm font-medium ${getDifferenceClass(product.diferenciaCantidad || 0)}`}>
-                                      {product.diferenciaCantidad! > 0 ? '+' : ''}{product.diferenciaCantidad?.toLocaleString() || 0}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-sm text-gray-500 dark:text-gray-400">Cantidad promedio:</span>
-                                    <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-                                      {product.cantidadPromedio?.toLocaleString() || 0}
-                                    </span>
-                                  </div>
-                                  <div className="mt-3">
-                                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Comparación visual:</div>
-                                    <div className="relative pt-1">
-                                      <div className="flex mb-2 items-center justify-between">
-                                        <div>
-                                          <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
-                                            Predicción
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-indigo-600 bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300">
-                                            Promedio
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-purple-600 bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300">
-                                            Recomendación
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-gray-200 dark:bg-gray-700">
-                                        <div 
-                                          className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500 dark:bg-blue-600"
-                                          style={{ width: '33%' }}
-                                        />
-                                        <div 
-                                          className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-500 dark:bg-indigo-600"
-                                          style={{ width: `${33 * ((product.cantidadPromedio ?? 0) / (product.cantidadPredicha ?? 1))}%` }}
-                                        />
-                                        <div 
-                                          className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-purple-500 dark:bg-purple-600"
-                                          style={{ width: `${33 * (product.cantidadSugerida / product.cantidadPredicha) || 0}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                                  <p className="italic">
-                                    {product.diferenciaCantidad! > 0 
-                                      ? 'Se recomienda aumentar el inventario respecto a la predicción.' 
-                                      : product.diferenciaCantidad! < 0 
-                                        ? 'Se recomienda reducir el inventario respecto a la predicción.'
-                                        : 'La recomendación coincide con la predicción.'}
-                                  </p>
-                                  <p className="mt-1 italic">
-                                    La cantidad promedio sugerida es: <span className="font-medium">{product.cantidadPromedio?.toLocaleString() || 0}</span> unidades.
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       );
                     })}

@@ -1,11 +1,12 @@
 export type UserRole = 'normal' | 'advanced' | 'admin';
 
 export type User = {
+  id: string;
   username: string;
-  password: string;
   role: UserRole;
   sucursal?: string;
   sucursalId?: number;
+  branch?: string; // Alternative name for sucursal
 };
 
 let currentUser: Partial<User> | null = null;

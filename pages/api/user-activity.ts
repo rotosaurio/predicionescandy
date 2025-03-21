@@ -137,6 +137,55 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .limit(14) // Show last 2 weeks
           .toArray();
         
+        // If we have sessions but userStats shows zeros, recalculate the stats
+        if (dailySessions.length > 0 && 
+            (userStats.totalActiveTime === 0 && userStats.totalIdleTime === 0 && userStats.totalSessions === 0)) {
+          // Calculate totals from sessions
+          let totalActiveTime = 0;
+          let totalIdleTime = 0;
+          let totalInteractions = 0;
+          const uniqueDates = new Set();
+          
+        interface DailySession {
+            totalActiveTime?: number;
+            totalIdleTime?: number;
+            interactionCount?: number;
+            sessionDate: string;
+        }
+
+                            dailySessions.forEach((session: DailySession) => {
+                                totalActiveTime += session.totalActiveTime || 0;
+                                totalIdleTime += session.totalIdleTime || 0;
+                                totalInteractions += session.interactionCount || 0;
+                                uniqueDates.add(session.sessionDate);
+                            });
+          
+          // Update user stats
+          const updatedStats = {
+            ...userStats,
+            totalSessions: uniqueDates.size,
+            totalActiveTime,
+            totalIdleTime,
+            totalInteractions,
+            averageSessionDuration: uniqueDates.size > 0 ? (totalActiveTime + totalIdleTime) / uniqueDates.size : 0,
+            averageActiveTimePerSession: uniqueDates.size > 0 ? totalActiveTime / uniqueDates.size : 0,
+            lastActive: new Date()
+          };
+          
+          // Update in database
+          await db.collection('user_activity_stats').updateOne(
+            { userId },
+            { $set: updatedStats }
+          );
+          
+          // Return updated stats
+          return res.status(200).json({ 
+            success: true, 
+            userStats: updatedStats,
+            recentSessions: dailySessions 
+          });
+        }
+        
         return res.status(200).json({ 
           success: true, 
           userStats,

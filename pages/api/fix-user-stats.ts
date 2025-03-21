@@ -113,3 +113,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
+
+// Make sure to call this API endpoint with proper authentication to fix all user stats
+// You can trigger this manually from an admin page when needed

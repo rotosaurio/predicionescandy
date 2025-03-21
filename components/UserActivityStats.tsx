@@ -237,6 +237,15 @@ const UserActivityStatsComponent: React.FC<UserActivityStatsComponentProps> = ({
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Actividad Diaria</h3>
             
+            {/* Add an information note explaining how time is calculated */}
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Nota:</strong> El tiempo de sesión se calcula desde el inicio hasta el cierre de la sesión. 
+                Después de 5 minutos de inactividad, el tiempo se contabiliza como "inactivo". 
+                Cualquier valor menor al 1% se muestra como mínimo 1% en la barra visual para indicar actividad.
+              </p>
+            </div>
+            
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
@@ -260,9 +269,22 @@ const UserActivityStatsComponent: React.FC<UserActivityStatsComponentProps> = ({
                     const duration = Math.max(totalTime, endTime.getTime() - startTime.getTime());
                     
                     // Calculate active percentage based on total used time
-                    const activePercent = totalTime > 0 
-                      ? Math.min(Math.round((session.totalActiveTime / totalTime) * 100), 100)
+                    // Ensure we show at least 0.1% if there was any activity at all
+                    let activePercent = 0;
+                    if (totalTime > 0) {
+                      const calculatedPercent = (session.totalActiveTime / totalTime) * 100;
+                      // If there's any activity but it's less than 1%, show 1% to indicate there was some activity
+                      activePercent = calculatedPercent > 0 && calculatedPercent < 1 ? 1 : Math.min(Math.round(calculatedPercent), 100);
+                    }
+                    
+                    // Calculate raw percentage for display (with decimal place for small values)
+                    const rawPercent = totalTime > 0 
+                      ? (session.totalActiveTime / totalTime) * 100 
                       : 0;
+                    // Format to 1 decimal place for display
+                    const displayPercent = rawPercent < 10 
+                      ? rawPercent.toFixed(1) 
+                      : Math.round(rawPercent);
                     
                     // Format date to show just the date part (no time)
                     const formattedDate = format(new Date(session.sessionDate), 'dd/MM/yyyy');
@@ -289,13 +311,16 @@ const UserActivityStatsComponent: React.FC<UserActivityStatsComponentProps> = ({
                             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
                               <div 
                                 className={`h-2.5 rounded-full ${
-                                  activePercent >= 70 ? 'bg-green-600' : 
-                                  activePercent >= 40 ? 'bg-yellow-400' : 'bg-red-500'
+                                  rawPercent >= 70 ? 'bg-green-600' : 
+                                  rawPercent >= 40 ? 'bg-yellow-400' : 'bg-red-500'
                                 }`} 
-                                style={{ width: `${activePercent}%` }}
+                                style={{ 
+                                  width: `${activePercent}%`,
+                                  minWidth: session.totalActiveTime > 0 ? '2px' : '0'
+                                }}
                               ></div>
                             </div>
-                            <span className="ml-2 text-gray-600 dark:text-gray-400">{activePercent}%</span>
+                            <span className="ml-2 text-gray-600 dark:text-gray-400">{displayPercent}%</span>
                           </div>
                         </td>
                       </tr>

@@ -292,11 +292,61 @@ const HistoricalPredictionPage: React.FC = () => {
     fetchHistoricalData();
   }, [id, timestamp, router.isReady]);
 
-  // Fetch inventory data only for common products
+  // Fetch inventory data in batch
   const fetchInventoryData = async (commonProducts: CommonProduct[]) => {
     try {
+      console.log(`Starting batch inventory fetch for ${commonProducts.length} common products with historical date: ${predictionData?.date || 'unknown'}`);
+      
+      // Extract all product names at once
+      const productNames = commonProducts.map(product => product.nombre);
+      
+      // Create batch request payload
+      const batchRequestPayload = {
+        productNames: productNames,
+        predictionDate: predictionData?.date ? predictionData.date : 
+                        predictionData?.timestamp ? predictionData.timestamp : undefined
+      };
+      
+      try {
+        console.log(`Sending batch inventory request for ${productNames.length} products`);
+        
+        const response = await fetch('/api/check-inventory-batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(batchRequestPayload),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          console.log(`✅ Batch inventory request successful. Found data for ${Object.keys(result.results).length} products using collection: ${result.collection}`);
+          setInventory(result.results);
+        } else {
+          throw new Error('Failed to fetch inventory data in batch');
+        }
+      } catch (error) {
+        console.error('Error in batch inventory request:', error);
+        
+        // Fallback to the original method if batch request fails
+        console.log('Falling back to individual inventory checks...');
+        await fetchInventoryDataIndividual(commonProducts);
+      }
+    } catch (error) {
+      console.error('Error in inventory data processing:', error);
+      setInventory({});
+    }
+  };
+
+  // Rename the original function as a fallback
+  const fetchInventoryDataIndividual = async (commonProducts: CommonProduct[]) => {
+    try {
       const inventoryData: Record<string, InventoryData> = {};
-      console.log(`Starting inventory fetch for ${commonProducts.length} common products with historical date: ${predictionData?.date || 'unknown'}`);
       
       // Process products one by one to avoid overwhelming the server
       for (let i = 0; i < commonProducts.length; i++) {
@@ -369,11 +419,11 @@ const HistoricalPredictionPage: React.FC = () => {
         }
       }
       
-      console.log(`✓ Completed inventory lookup: found data for ${Object.keys(inventoryData).length}/${commonProducts.length} products`);
+      console.log(`✓ Completed individual inventory lookup: found data for ${Object.keys(inventoryData).length}/${commonProducts.length} products`);
       setInventory(inventoryData);
       
     } catch (error) {
-      console.error('Error in inventory data processing:', error);
+      console.error('Error in individual inventory checks:', error);
       setInventory({});
     }
   };

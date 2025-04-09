@@ -49,6 +49,10 @@ export default function InventoryStatus({ productName, className = '' }: Invento
     fetchInventoryData();
   }, [productName]);
 
+  // Keep the original implementation for individual product lookup
+  // as this component is designed to work with a single product
+  // The performance improvements are primarily for the bulk lookups in the pages
+
   if (loading) {
     return <div className={`text-sm text-gray-500 ${className}`}>Consultando inventario...</div>;
   }

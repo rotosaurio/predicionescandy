@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import Image from "next/image";
 import Link from 'next/link';
 import localFont from "next/font/local";
+import { interpretSystemStatus } from '../../utils/systemStatus';
 
 // Correct font paths: remove one level of parent directory
 const geistSans = localFont({
@@ -29,7 +30,7 @@ const InventarioPage: React.FC = () => {
   const [inventoryHistory, setInventoryHistory] = useState<InventorySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [systemStatus, setSystemStatus] = useState<"online" | "offline" | "unknown">("unknown");
+  const [systemStatus, setSystemStatus] = useState<"activo" | "offline" | "unknown">("unknown");
   const [selectedInventory, setSelectedInventory] = useState<string | null>(null);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -44,8 +45,7 @@ const InventarioPage: React.FC = () => {
         const statusResponse = await fetch('/api/proxy?endpoint=estado');
         if (statusResponse.ok) {
           const statusData = await statusResponse.json();
-          const isOnline = statusData.estado === "online" || statusData.originalResponse?.branches > 0;
-          setSystemStatus(isOnline ? "online" : "offline");
+          setSystemStatus(interpretSystemStatus(statusData)); // Usar la función simplificada
         }
         
         const response = await fetch('/api/inventory-history');
@@ -113,11 +113,13 @@ const InventarioPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-4">
               <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
-                systemStatus === 'online' 
+                systemStatus === 'activo' 
                   ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200' 
-                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                  : systemStatus === 'unknown'
+                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
+                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
               }`}>
-                Sistema: {systemStatus === 'online' ? 'En línea' : 'Fuera de línea'}
+                Sistema: {systemStatus === 'activo' ? 'En línea' : systemStatus === 'unknown' ? 'Cargando...' : 'Fuera de línea'}
               </div>
               <Link 
                 href="/admin" 

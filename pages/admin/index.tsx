@@ -18,7 +18,7 @@ const geistMono = localFont({
 });
 
 // API configuration
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 const API_ENDPOINTS = {
   PREDECIR: `${API_BASE_URL}/api/predecir`,
   SUCURSALES: `${API_BASE_URL}/api/sucursales`,
@@ -97,9 +97,11 @@ export default function AdminPanel() {
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
   const [retrainParams, setRetrainParams] = useState({ epochs: 50, batch_size: 128, learning_rate: 0.001 });
 
-  const [datasets, setDatasets] = useState<string[]>([]);
+  const [datasets, setDatasets] = useState<Array<{ id: string, name: string }>>([]);
+  const [datasetDetails, setDatasetDetails] = useState<Record<string, any>>({});
   const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
   const [trainingStatus, setTrainingStatus] = useState<string | null>(null);
+  const [datasetsLoading, setDatasetsLoading] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -120,12 +122,23 @@ export default function AdminPanel() {
         const statusResponse = await fetch('/api/proxy?endpoint=estado');
         if (statusResponse.ok) {
           const statusData = await statusResponse.json();
-          const isOnline = statusData.estado === "online" || statusData.originalResponse?.branches > 0;
+          // Check if modelo_cargado is true or if any memory stats are available
+          const isOnline = statusData.modelo_cargado === true || 
+                          statusData.memoria_total !== undefined ||
+                          (statusData.originalResponse && statusData.originalResponse.modelo_cargado === true);
+          
+          console.log("API Status response:", statusData);
           setSystemStatus(isOnline ? "online" : "offline");
+        } else {
+          console.error("Error en la respuesta del estado:", statusResponse.status);
+          setSystemStatus("offline");
         }
         
         // Cargar historial
         loadHistoricalData();
+
+        // Also fetch datasets when component mounts
+        fetchDatasets();
       } catch (err) {
         setError("Error al cargar datos iniciales. Por favor, intente más tarde.");
         console.error("Error:", err);
@@ -198,7 +211,7 @@ export default function AdminPanel() {
         incluir_recomendaciones: true
       };
       
-      const response = await fetch(API_ENDPOINTS.PREDECIR, {
+      const response = await fetch('/api/proxy?endpoint=predecir', {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -301,19 +314,26 @@ export default function AdminPanel() {
       setError(null);
       setPredictionStatus(null);
 
-      const response = await fetch('/api/auto-predictions', {
+      // Modified to add useLatestInventory parameter
+      const response = await fetch('/api/auto-predictions?useLatestInventory=true', {
         method: 'POST'
       });
 
-      if (!response.ok) {
-        throw new Error('Error al generar predicciones');
-      }
-
       const result = await response.json();
-      setPredictionStatus(result);
       
-      // Refrescar los datos históricos
-      await loadHistoricalData();
+      if (!response.ok) {
+        // Display inventory information if available
+        if (result.inventoryStatus && result.inventoryStatus.availableInventories) {
+          const availableDates = result.inventoryStatus.availableInventories.join(', ');
+          setError(`${result.message} Inventarios disponibles: ${availableDates}`);
+        } else {
+          setError(result.message || 'Error al generar predicciones');
+        }
+      } else {
+        setPredictionStatus(result);
+        // Refrescar los datos históricos
+        await loadHistoricalData();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
     } finally {
@@ -345,21 +365,49 @@ export default function AdminPanel() {
       return;
     }
     
-    const formData = new FormData();
-    formData.append('file', datasetFile);
-    formData.append('dataset_name', 'New Dataset');
-    formData.append('start_date', '01/01/2023');
-    formData.append('end_date', '31/12/2023');
-
+    setLoading(true);
+    setError(null);
+    
     try {
-      const response = await axios.post('/api/upload-dataset', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+      const formData = new FormData();
+      formData.append('file', datasetFile);
+      
+      // Add required metadata fields
+      const datasetName = `dataset_${new Date().getTime()}`;
+      formData.append('dataset_name', datasetName);
+      formData.append('start_date', '01/01/2023');
+      formData.append('end_date', '31/12/2023');
+
+      console.log("Subiendo dataset:", datasetFile.name);
+
+      // Use our dedicated API route for file uploads instead of the proxy
+      const response = await fetch('/api/upload-dataset', {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type header, browser will set it with correct boundary
       });
-      console.log('Dataset uploaded:', response.data);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Error ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Dataset uploaded:', result);
+      
+      // Add success message to UI
+      alert(`Dataset "${datasetName}" subido correctamente.`);
+      
+      // Clear file input
+      setDatasetFile(null);
+      
+      // Refresh the datasets list
+      fetchDatasets();
     } catch (error) {
       console.error('Error uploading dataset:', error);
+      setError(`Error al subir el dataset: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -375,47 +423,190 @@ export default function AdminPanel() {
   // Fetch datasets
   const fetchDatasets = async () => {
     try {
-      const response = await axios.get('/api/datasets');
-      setDatasets(response.data.datasets || []);
+      setDatasetsLoading(true);
+      // Use the proxy API instead of direct access
+      const response = await fetch('/api/proxy?endpoint=datasets');
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      const data = await response.json();
+      
+      // Process dataset list - ensuring we correctly extract IDs and names
+      const rawDatasetList = data.datasets || [];
+      const processedDatasets: Array<{ id: string, name: string }> = [];
+      const detailsMap: Record<string, any> = {};
+      
+      // Handle both array of strings and array of objects
+      for (const item of rawDatasetList) {
+        let dataset: { id: string, name: string };
+        
+        if (typeof item === 'string') {
+          // If it's a simple string, use it as both id and name
+          dataset = { id: item, name: item };
+        } else if (typeof item === 'object' && item !== null) {
+          // If it's an object, extract both id and name
+          const id = item.id || item.name || String(item);
+          const name = item.name || item.id || String(item);
+          dataset = { id, name };
+          detailsMap[id] = item;
+        } else {
+          continue; // Skip invalid items
+        }
+        
+        processedDatasets.push(dataset);
+      }
+      
+      setDatasets(processedDatasets);
+      setDatasetDetails(detailsMap);
+      
+      // Fetch additional details if needed
+      for (const dataset of processedDatasets) {
+        if (!detailsMap[dataset.id]) {
+          try {
+            const detailsResponse = await fetch(`/api/proxy?endpoint=dataset_details&dataset_name=${encodeURIComponent(dataset.id)}`);
+            if (detailsResponse.ok) {
+              const detailsData = await detailsResponse.json();
+              detailsMap[dataset.id] = detailsData;
+            }
+          } catch (e) {
+            console.warn(`Could not fetch details for dataset ${dataset.name}`, e);
+          }
+        }
+      }
+      
+      setDatasetDetails(detailsMap);
     } catch (error) {
       console.error('Error fetching datasets:', error);
+    } finally {
+      setDatasetsLoading(false);
     }
   };
 
-  // Delete a dataset
-  const deleteDataset = async (datasetName: string) => {
+  // Delete a dataset - updated to work with our new dataset structure
+  const deleteDataset = async (datasetId: string) => {
+    const datasetToDelete = datasets.find(d => d.id === datasetId);
+    const displayName = datasetToDelete?.name || datasetId;
+    
+    if (!confirm(`¿Está seguro que desea eliminar el dataset "${displayName}"?`)) {
+      return;
+    }
+    
     try {
-      await axios.delete(`/api/delete_dataset?dataset_name=${datasetName}`);
-      setDatasets(datasets.filter((name) => name !== datasetName));
+      // Use proxy API for dataset deletion
+      const response = await fetch(`/api/proxy?endpoint=delete_dataset&dataset_name=${encodeURIComponent(datasetId)}`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      // Remove from the local state
+      setDatasets(datasets.filter(dataset => dataset.id !== datasetId));
+      setSuccess(`Dataset "${displayName}" eliminado correctamente.`);
     } catch (error) {
       console.error('Error deleting dataset:', error);
+      setError(`Error al eliminar dataset: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   };
 
   // Check training status
   const fetchTrainingStatus = async () => {
     try {
-      const response = await axios.get('/api/training-status');
+      const response = await axios.get('/api/proxy?endpoint=training-status');
       setTrainingStatus(response.data.status || 'Desconocido');
     } catch (error) {
       console.error('Error fetching training status:', error);
     }
   };
 
-  // Retrain model
+  // Retrain model - updated to pass the correct dataset IDs
   const retrainModel = async () => {
     try {
-      const body = {
+      // Log what we're sending to help debug the issue
+      const requestParams = {
         epochs: retrainParams.epochs,
         batch_size: retrainParams.batch_size,
         learning_rate: retrainParams.learning_rate,
         use_all_datasets: selectedDatasets.length === 0,
-        dataset_ids: selectedDatasets,
+        dataset_ids: selectedDatasets, // Now contains actual dataset IDs
       };
-      await axios.post('/api/retrain-model', body);
-      console.log('Model retraining started');
+      
+      console.log('Attempting to retrain model with parameters:', requestParams);
+      
+      // Ensure values are within acceptable ranges
+      const validatedParams = {
+        epochs: Math.max(10, Math.min(300, retrainParams.epochs)),
+        batch_size: Math.max(32, Math.min(512, retrainParams.batch_size)),
+        learning_rate: Math.max(0.0001, Math.min(0.01, retrainParams.learning_rate)),
+        use_all_datasets: selectedDatasets.length === 0,
+        dataset_ids: selectedDatasets, // Now contains actual dataset IDs
+      };
+
+      // Use fetch instead of axios for more control over the request
+      const response = await fetch('/api/proxy?endpoint=retrain-model', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(validatedParams),
+      });
+      
+      // More detailed error handling
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || `Error ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+      
+      const data = await response.json();
+      console.log('Model retraining started successfully:', data);
+      
+      // Show success message
+      setSuccess('El reentrenamiento del modelo ha comenzado correctamente');
     } catch (error) {
       console.error('Error retraining model:', error);
+      setError(`Error al iniciar reentrenamiento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  };
+
+  // Add new function for automatic retraining
+  const retrainModelAutomatic = async () => {
+    try {
+      // Log what we're sending
+      const requestParams = {
+        epochs: retrainParams.epochs,
+        batch_size: retrainParams.batch_size,
+        learning_rate: retrainParams.learning_rate,
+        preserve_original_model: true
+      };
+      
+      console.log('Starting automatic retraining with parameters:', requestParams);
+      
+      // Use fetch for the request
+      const response = await fetch('/api/proxy?endpoint=retrain-automatic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestParams),
+      });
+      
+      // Error handling
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || `Error ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+      
+      const data = await response.json();
+      console.log('Automatic retraining started successfully:', data);
+      
+      // Show success message
+      setSuccess('El reentrenamiento automático ha comenzado correctamente');
+    } catch (error) {
+      console.error('Error starting automatic retraining:', error);
+      setError(`Error al iniciar reentrenamiento automático: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   };
 
@@ -747,279 +938,392 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* New sections for submitting orders, batch orders, re-training the model, and uploading new datasets */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 space-y-6">
-              <section>
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Registrar Pedido Individual</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="orderSucursal" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Sucursal
-                    </label>
-                    <select
-                      id="orderSucursal"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={orderData.sucursal}
-                      onChange={(e) => setOrderData({ ...orderData, sucursal: e.target.value })}
+            {/* Enhanced dataset management and other admin sections */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Gestión de Datasets</h2>
+              </div>
+              <div className="p-6">
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-md font-semibold">Datasets Disponibles</h3>
+                    <button
+                      onClick={fetchDatasets}
+                      className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-2"
+                      disabled={datasetsLoading}
                     >
-                      <option value="">Seleccionar sucursal</option>
-                      {branches.map((branch) => (
-                        <option key={`order-${branch}`} value={branch}>
-                          {branch}
-                        </option>
-                      ))}
-                    </select>
+                      {datasetsLoading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Cargando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          <span>Actualizar</span>
+                        </>
+                      )}
+                    </button>
                   </div>
-                  <div>
-                    <label htmlFor="orderArticuloId" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      ID del Artículo
-                    </label>
-                    <input
-                      id="orderArticuloId"
-                      type="text"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={orderData.articulo_id}
-                      onChange={(e) => setOrderData({ ...orderData, articulo_id: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="orderCantidad" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Cantidad
-                    </label>
-                    <input
-                      id="orderCantidad"
-                      type="number"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={orderData.cantidad}
-                      onChange={(e) => setOrderData({ ...orderData, cantidad: parseInt(e.target.value, 10) })}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="orderFecha" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Fecha
-                    </label>
-                    <input
-                      id="orderFecha"
-                      type="date"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={orderData.fecha}
-                      onChange={(e) => setOrderData({ ...orderData, fecha: e.target.value })}
-                    />
-                  </div>
-                  <button
-                    onClick={handleOrderSubmit}
-                    className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Registrar Pedido
-                  </button>
+                  
+                  {datasets.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-700">
+                          <tr>
+                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Nombre</th>
+                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Registros</th>
+                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Periodo</th>
+                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                          {datasets.map((dataset) => {
+                            const details = datasetDetails[dataset.id] || {};
+                            // Convert potentially complex values to strings to avoid rendering objects directly
+                            const recordCount = typeof details.record_count === 'object' ? JSON.stringify(details.record_count) : details.record_count;
+                            const rows = typeof details.rows === 'object' ? JSON.stringify(details.rows) : details.rows;
+                            const count = typeof details.count === 'object' ? JSON.stringify(details.count) : details.count;
+                            
+                            return (
+                              <tr key={dataset.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{dataset.name}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                  {recordCount || rows || count || "N/A"}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                  {typeof details.period === 'object' ? JSON.stringify(details.period) : 
+                                    details.period || (
+                                      details.start_date && details.end_date ? 
+                                      `${details.start_date} - ${details.end_date}` : "N/A"
+                                    )
+                                  }
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm">
+                                  <div className="flex space-x-2">
+                                    <button
+                                      onClick={() => deleteDataset(dataset.id)}
+                                      className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                                      title="Eliminar dataset"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                      {datasetsLoading ? 'Cargando datasets...' : 'No hay datasets disponibles.'}
+                    </div>
+                  )}
                 </div>
-              </section>
-
-              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Registrar Pedidos en Lote</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="batchOrderSucursal" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Sucursal
-                    </label>
-                    <select
-                      id="batchOrderSucursal"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={orderData.sucursal}
-                      onChange={(e) => setOrderData({ ...orderData, sucursal: e.target.value })}
+                
+                {/* Dataset Upload Section */}
+                <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <h3 className="text-md font-semibold mb-4">Subir Nuevo Dataset</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="datasetFile" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Archivo de Dataset
+                      </label>
+                      <input
+                        id="datasetFile"
+                        type="file"
+                        accept=".json,.csv"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        onChange={(e) => {
+                          const files = e.target.files;
+                          if (files && files.length > 0) {
+                            setDatasetFile(files[0]);
+                          }
+                        }}
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Formatos aceptados: JSON con estructura RecordSet o CSV</p>
+                    </div>
+                    <button
+                      onClick={handleDatasetUpload}
+                      className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white flex justify-center items-center"
+                      disabled={loading || !datasetFile}
                     >
-                      <option value="">Seleccionar sucursal</option>
-                      {branches.map((branch) => (
-                        <option key={`batch-${branch}`} value={branch}>
-                          {branch}
-                        </option>
-                      ))}
-                    </select>
+                      {loading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Subiendo...
+                        </>
+                      ) : (
+                        'Subir Dataset'
+                      )}
+                    </button>
                   </div>
-                  <div>
-                    <label htmlFor="batchOrderData" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Datos de Pedidos (JSON)
-                    </label>
-                    <textarea
-                      id="batchOrderData"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      rows={5}
-                      placeholder='[{"articulo_id": "236694", "cantidad": 10}, {"articulo_id": "237389", "cantidad": 15}]'
-                      onChange={(e) => {
-                        try {
-                          const jsonData = JSON.parse(e.target.value);
-                          setBatchOrderData(jsonData);
-                        } catch (error) {
-                          console.error("Formato JSON inválido:", error);
-                        }
-                      }}
-                    />
-                  </div>
-                  <button
-                    onClick={handleBatchOrderSubmit}
-                    className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Registrar Pedidos en Lote
-                  </button>
                 </div>
-              </section>
+              </div>
+            </div>
 
-              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Subir Dataset</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="datasetFile" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Archivo de Dataset
-                    </label>
-                    <input
-                      id="datasetFile"
-                      type="file"
-                      accept=".json,.csv"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      onChange={(e) => {
-                        const files = e.target.files;
-                        if (files && files.length > 0) {
-                          setDatasetFile(files[0]);
-                        }
-                      }}
-                    />
-                    <p className="mt-1 text-xs text-gray-500">Formatos aceptados: JSON con estructura RecordSet o CSV</p>
+            {/* Model Training Section - Improved UI */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Entrenamiento del Modelo</h2>
+              </div>
+              <div className="p-6">
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-md font-semibold">Estado Actual</h3>
+                    <button
+                      onClick={fetchTrainingStatus}
+                      className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm"
+                    >
+                      Verificar Estado
+                    </button>
                   </div>
-                  <button
-                    onClick={handleDatasetUpload}
-                    className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Subir Dataset
-                  </button>
+                  
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-6">
+                    <p className="text-gray-700 dark:text-gray-300">
+                      {trainingStatus || "No se ha consultado el estado del entrenamiento"}
+                    </p>
+                  </div>
                 </div>
-              </section>
-
-              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Reentrenar Modelo</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="retrainEpochs" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Épocas (10-300)
-                    </label>
-                    <input
-                      id="retrainEpochs"
-                      type="number"
-                      min="10"
-                      max="300"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={retrainParams.epochs}
-                      onChange={(e) => setRetrainParams({ ...retrainParams, epochs: parseInt(e.target.value, 10) })}
-                    />
+                
+                <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <h3 className="text-md font-semibold mb-4">Parámetros de Entrenamiento</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label htmlFor="retrainEpochs" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Épocas (10-300)
+                      </label>
+                      <input
+                        id="retrainEpochs"
+                        type="number"
+                        min="10"
+                        max="300"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        value={retrainParams.epochs}
+                        onChange={(e) => setRetrainParams({ ...retrainParams, epochs: parseInt(e.target.value, 10) })}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="retrainBatchSize" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Tamaño de Lote (32-512)
+                      </label>
+                      <input
+                        id="retrainBatchSize"
+                        type="number"
+                        min="32"
+                        max="512"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        value={retrainParams.batch_size}
+                        onChange={(e) => setRetrainParams({ ...retrainParams, batch_size: parseInt(e.target.value, 10) })}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="retrainLearningRate" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Tasa de Aprendizaje
+                      </label>
+                      <input
+                        id="retrainLearningRate"
+                        type="number"
+                        step="0.0001"
+                        min="0.0001"
+                        max="0.01"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        value={retrainParams.learning_rate}
+                        onChange={(e) => setRetrainParams({ ...retrainParams, learning_rate: parseFloat(e.target.value) })}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label htmlFor="retrainBatchSize" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Tamaño de Lote (32-512)
-                    </label>
-                    <input
-                      id="retrainBatchSize"
-                      type="number"
-                      min="32"
-                      max="512"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={retrainParams.batch_size}
-                      onChange={(e) => setRetrainParams({ ...retrainParams, batch_size: parseInt(e.target.value, 10) })}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="retrainLearningRate" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Tasa de Aprendizaje (0.0001-0.01)
-                    </label>
-                    <input
-                      id="retrainLearningRate"
-                      type="number"
-                      step="0.0001"
-                      min="0.0001"
-                      max="0.01"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      value={retrainParams.learning_rate}
-                      onChange={(e) => setRetrainParams({ ...retrainParams, learning_rate: parseFloat(e.target.value) })}
-                    />
-                  </div>
-                  <button
-                    onClick={handleRetrainModel}
-                    className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Iniciar Reentrenamiento
-                  </button>
-                </div>
-              </section>
-
-              <section>
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Gestión de Datasets</h2>
-                <button
-                  onClick={fetchDatasets}
-                  className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Cargar Datasets
-                </button>
-                <ul className="mt-4 space-y-2">
-                  {datasets.map((dataset) => (
-                    <li key={dataset} className="flex justify-between items-center">
-                      <span className="text-gray-700 dark:text-gray-300">{dataset}</span>
-                      <button
-                        onClick={() => deleteDataset(dataset)}
-                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
-                      >
-                        Eliminar
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Estado de Entrenamiento</h2>
-                <button
-                  onClick={fetchTrainingStatus}
-                  className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Verificar Estado
-                </button>
-                {trainingStatus && (
-                  <p className="mt-4 text-gray-700 dark:text-gray-300">Estado actual: {trainingStatus}</p>
-                )}
-              </section>
-
-              <section className="pt-6 border-t border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Reentrenar Modelo</h2>
-                <div className="space-y-4">
-                  <div>
+                  
+                  <div className="mb-4">
                     <label htmlFor="selectDatasets" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Seleccionar Datasets (opcional)
+                      Datasets a utilizar (Seleccione múltiples o deje vacío para usar todos)
                     </label>
                     <select
                       id="selectDatasets"
                       multiple
-                      className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      className="w-full h-32 rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                       value={selectedDatasets}
                       onChange={(e) =>
                         setSelectedDatasets(Array.from(e.target.selectedOptions, (option) => option.value))
                       }
                     >
                       {datasets.map((dataset) => (
-                        <option key={dataset} value={dataset}>
-                          {dataset}
+                        <option key={dataset.id} value={dataset.id}>
+                          {dataset.name}
                         </option>
                       ))}
                     </select>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {selectedDatasets.length === 0 
+                        ? 'Se usarán todos los datasets disponibles' 
+                        : `Seleccionados: ${selectedDatasets.length} datasets`}
+                    </p>
                   </div>
-                  <button
-                    onClick={retrainModel}
-                    className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Iniciar Reentrenamiento
-                  </button>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                    <button
+                      onClick={retrainModel}
+                      className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Iniciar Reentrenamiento
+                    </button>
+                    
+                    <button
+                      onClick={retrainModelAutomatic}
+                      className="w-full px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      Reentrenamiento Automático
+                    </button>
+                  </div>
                 </div>
-              </section>
+              </div>
+            </div>
+            
+            {/* Other sections (orders, etc.) */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Gestión de Pedidos</h2>
+              </div>
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <section>
+                  <h3 className="text-md font-semibold mb-4">Registrar Pedido Individual</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="orderSucursal" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Sucursal
+                      </label>
+                      <select
+                        id="orderSucursal"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        value={orderData.sucursal}
+                        onChange={(e) => setOrderData({ ...orderData, sucursal: e.target.value })}
+                      >
+                        <option value="">Seleccionar sucursal</option>
+                        {branches.map((branch) => (
+                          <option key={`order-${branch}`} value={branch}>
+                            {branch}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="orderArticuloId" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        ID del Artículo
+                      </label>
+                      <input
+                        id="orderArticuloId"
+                        type="text"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        value={orderData.articulo_id}
+                        onChange={(e) => setOrderData({ ...orderData, articulo_id: e.target.value })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="orderCantidad" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Cantidad
+                        </label>
+                        <input
+                          id="orderCantidad"
+                          type="number"
+                          className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                          value={orderData.cantidad}
+                          onChange={(e) => setOrderData({ ...orderData, cantidad: parseInt(e.target.value, 10) })}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="orderFecha" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Fecha
+                        </label>
+                        <input
+                          id="orderFecha"
+                          type="date"
+                          className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                          value={orderData.fecha}
+                          onChange={(e) => setOrderData({ ...orderData, fecha: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleOrderSubmit}
+                      className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Registrar Pedido
+                    </button>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-md font-semibold mb-4">Registrar Pedidos en Lote</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="batchOrderSucursal" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Sucursal
+                      </label>
+                      <select
+                        id="batchOrderSucursal"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        value={orderData.sucursal}
+                        onChange={(e) => setOrderData({ ...orderData, sucursal: e.target.value })}
+                      >
+                        <option value="">Seleccionar sucursal</option>
+                        {branches.map((branch) => (
+                          <option key={`batch-${branch}`} value={branch}>
+                            {branch}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="batchOrderData" className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Datos de Pedidos (JSON)
+                      </label>
+                      <textarea
+                        id="batchOrderData"
+                        className="w-full rounded-md border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        rows={5}
+                        placeholder='[{"articulo_id": "236694", "cantidad": 10}, {"articulo_id": "237389", "cantidad": 15}]'
+                        onChange={(e) => {
+                          try {
+                            const jsonData = JSON.parse(e.target.value);
+                            setBatchOrderData(jsonData);
+                          } catch (error) {
+                            console.error("Formato JSON inválido:", error);
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={handleBatchOrderSubmit}
+                      className="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Registrar Pedidos en Lote
+                    </button>
+                  </div>
+                </section>
+              </div>
             </div>
           </div>
         </div>
       </main>
     </div>
   );
+}
+
+// Implement the success message state and handler
+function setSuccess(message: string) {
+  // In a real implementation, this would update a state variable
+  alert(message);
 }

@@ -1,17 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
 import { authenticateUser, setCurrentUser } from '../utils/auth';
+import { checkSystemStatus, isSystemActive } from '../utils/systemStatus';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [systemStatus, setSystemStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Check system status on component mount
+  useEffect(() => {
+    const fetchSystemStatus = async () => {
+      const status = await checkSystemStatus();
+      console.log('Login page received system status:', status);
+      setSystemStatus(status);
+    };
+    
+    fetchSystemStatus();
+    
+    // Periodically check system status
+    const intervalId = setInterval(fetchSystemStatus, 30000); // Every 30 seconds
+    
+    return () => clearInterval(intervalId);
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
+
+    // Check system status but don't prevent login
+    if (!isSystemActive(systemStatus)) {
+      const freshStatus = await checkSystemStatus(); // Refresh status
+      setSystemStatus(freshStatus);
+      
+      // We still update the status but don't return early
+      // This way the user can still log in during maintenance
+    }
 
     try {
       const user = await authenticateUser(username, password);
@@ -46,6 +75,8 @@ export default function Login() {
     } catch (err) {
       console.error('Login error:', err);
       setError('An error occurred during login');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -76,6 +107,20 @@ export default function Login() {
               <div className="flex">
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error}</h3>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {systemStatus && !isSystemActive(systemStatus) && (
+            <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                    Sistema en mantenimiento. Algunas funciones pueden no estar disponibles.
+                    <br/>
+                    <small className="text-xs">(Debug: estado={systemStatus.estado})</small>
+                  </h3>
                 </div>
               </div>
             </div>
@@ -113,9 +158,14 @@ export default function Login() {
           <div>
             <button
               type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-[#0B9ED9] hover:bg-[#0989c0] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              disabled={loading} // Removed !isSystemActive(systemStatus) condition
+              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+                loading 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-[#0B9ED9] hover:bg-[#0989c0] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+              }`}
             >
-              Iniciar sesión
+              {loading ? 'Procesando...' : 'Iniciar sesión'}
             </button>
           </div>
         </form>

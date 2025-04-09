@@ -6,11 +6,16 @@ import { format } from 'date-fns';
 import { Prediction, NoOrdenadoRazon, FeedbackProduct } from '../../types/models';
 import { isUserLoggedIn, getCurrentUser } from '../../utils/auth';
 import OrderFeedbackModal from '../../components/OrderFeedbackModal';
-import { FiInfo, FiCheck, FiX } from 'react-icons/fi';
+import { FiInfo, FiCheck, FiX, FiDownload } from 'react-icons/fi';
 import { getDisplayBranchName } from '../../utils/branchMapping';
 import { useAppStore } from '../../utils/store';
 import StatusIndicator from '../../components/StatusIndicator';
 import { getActivityTracker } from '../../utils/activityTracker';
+
+// Add imports for export functionality
+import { utils as xlsxUtils, write } from 'xlsx';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 // Interface for inventory data
 interface InventoryData {
@@ -88,6 +93,9 @@ const SucursalPage: React.FC = () => {
   // Add new state for UniCompra products
   const [uniCompraProducts, setUniCompraProducts] = useState<UniCompraProduct[]>([]);
   
+  // Add new state for export menu
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
   // Function to toggle product expansion
   const toggleProductExpansion = (productName: string) => {
     if (expandedProduct === productName) {
@@ -159,57 +167,49 @@ const SucursalPage: React.FC = () => {
     return null;
   };
 
-  // Function to get common products between predictions and recommendations
-  const getCommonProducts = (predictions: Prediction[], recommendations: any[]): CommonProduct[] => {
+  // Rename this function and modify to get all recommendations instead of just common products
+  const getAllRecommendedProducts = (predictions: Prediction[], recommendations: any[]): CommonProduct[] => {
     const result: CommonProduct[] = [];
     
-    // Create maps for faster lookup
+    // Create maps for faster lookup - still useful for matching with predictions
     const predMap = new Map(predictions.map(p => [p.nombre.toLowerCase(), p]));
-    const recMap = new Map(recommendations.map(r => [r.nombre.toLowerCase(), r]));
     
-    // Find common products
-    for (const pred of predictions) {
-      const predName = pred.nombre.toLowerCase();
-      if (recMap.has(predName)) {
-        const rec = recMap.get(predName)!;
-        
-        // Calculate differences
-        const predQty = pred.cantidad;
-        const recQty = rec.cantidad_sugerida;
-        const difference = recQty - predQty;
-        const percentDiff = predQty > 0 ? (difference / predQty) * 100 : 0;
-        
-        // Create common product object with feedback fields from prediction
-        result.push({
-          producto: pred.nombre,
-          nombre: pred.nombre,
-          cantidadPredicha: predQty,
-          cantidadSugerida: recQty,
-          cantidadPromedio: Math.round((predQty + recQty) / 2),
-          confianzaPrediccion: pred.confianza,
-          confianzaRecomendacion: rec.confianza,
-          diferenciaCantidad: difference,
-          porcentajeDiferencia: percentDiff,
-          tipo: rec.tipo,
-          motivo: rec.motivo,
-          // Additional fields from recommendation
-          min_cantidad: rec.min_cantidad,
-          max_cantidad: rec.max_cantidad,
-          tipo_recomendacion: rec.tipo_recomendacion,
-          frecuencia_otras: rec.frecuencia_otras,
-          num_sucursales: rec.num_sucursales,
-          nivel_recomendacion: rec.nivel_recomendacion,
-          pedidos_recientes_otras: rec.pedidos_recientes_otras,
-          ultima_fecha_pedido: rec.ultima_fecha_pedido,
-          dias_desde_ultimo_pedido: rec.dias_desde_ultimo_pedido,
-          cantidad_ultimo_pedido: rec.cantidad_ultimo_pedido,
-          articulo_id: rec.articulo_id,
-          // Feedback fields from prediction
-          ordenado: pred.ordenado,
-          razon_no_ordenado: pred.razon_no_ordenado,
-          comentario_no_ordenado: pred.comentario_no_ordenado,
-        });
-      }
+    // Process all recommendations
+    for (const rec of recommendations) {
+      const recName = rec.nombre.toLowerCase();
+      const pred = predMap.get(recName); // This might be undefined if no matching prediction
+      
+      // Create product object from recommendation, adding prediction data if available
+      result.push({
+        producto: rec.nombre,
+        nombre: rec.nombre,
+        // Use prediction quantity if available, otherwise default to 0
+        cantidadPredicha: pred ? pred.cantidad : 0,
+        cantidadSugerida: rec.cantidad_sugerida,
+        cantidadPromedio: pred ? Math.round((pred.cantidad + rec.cantidad_sugerida) / 2) : rec.cantidad_sugerida,
+        confianzaPrediccion: pred ? pred.confianza : 0,
+        confianzaRecomendacion: rec.confianza,
+        diferenciaCantidad: pred ? (rec.cantidad_sugerida - pred.cantidad) : rec.cantidad_sugerida,
+        porcentajeDiferencia: pred && pred.cantidad > 0 ? ((rec.cantidad_sugerida - pred.cantidad) / pred.cantidad) * 100 : 0,
+        tipo: rec.tipo,
+        motivo: rec.motivo,
+        // Additional fields from recommendation
+        min_cantidad: rec.min_cantidad,
+        max_cantidad: rec.max_cantidad,
+        tipo_recomendacion: rec.tipo_recomendacion,
+        frecuencia_otras: rec.frecuencia_otras,
+        num_sucursales: rec.num_sucursales,
+        nivel_recomendacion: rec.nivel_recomendacion,
+        pedidos_recientes_otras: rec.pedidos_recientes_otras,
+        ultima_fecha_pedido: rec.ultima_fecha_pedido,
+        dias_desde_ultimo_pedido: rec.dias_desde_ultimo_pedido,
+        cantidad_ultimo_pedido: rec.cantidad_ultimo_pedido,
+        articulo_id: rec.articulo_id,
+        // Feedback fields from prediction if available
+        ordenado: pred ? pred.ordenado : undefined,
+        razon_no_ordenado: pred ? pred.razon_no_ordenado : undefined,
+        comentario_no_ordenado: pred ? pred.comentario_no_ordenado : undefined,
+      });
     }
     
     // Sort by name
@@ -289,11 +289,11 @@ const SucursalPage: React.FC = () => {
         
         const predictions = data.prediction.predictions || [];
         
-        // Obtener los productos comunes (intersección) con análisis comparativo
-        const commonProducts = getCommonProducts(predictions, recommendations);
+        // Changed: Get all recommended products using the new function
+        const recommendedProducts = getAllRecommendedProducts(predictions, recommendations);
         
-        // Merge feedback data with common products - UPDATE THIS LOGIC
-        const mergedProducts = commonProducts.map(product => {
+        // Merge feedback data with recommended products
+        const mergedProducts = recommendedProducts.map(product => {
           // Match by product name AND predictionId to ensure correct associations
           const feedback = feedbackData.find((fb: { producto: string; predictionId?: string; fecha?: string }) => 
             fb.producto === product.nombre && 
@@ -304,10 +304,10 @@ const SucursalPage: React.FC = () => {
           return feedback ? { ...product, ...feedback } : product;
         });
 
-        // Asegurarnos de que cantidadPromedio esté definido en todos los productos
+        // Ensure cantidadPromedio is defined for all products
         mergedProducts.forEach(product => {
           if (product.cantidadPromedio === undefined) {
-            product.cantidadPromedio = Math.round((product.cantidadPredicha + product.cantidadSugerida) / 2);
+            product.cantidadPromedio = product.cantidadSugerida;
           }
         });
         
@@ -317,21 +317,20 @@ const SucursalPage: React.FC = () => {
           date: data.prediction.date,
           predictions: predictions,
           recommendations: recommendations,
-          commonProducts: mergedProducts
+          commonProducts: mergedProducts // Using our new list of all recommended products
         });
         
-        console.log(`Productos comunes encontrados: ${mergedProducts.length}`);
+        console.log(`Recommended products found: ${mergedProducts.length}`);
         
-        // IMPORTANT CHANGE: Set loading to false here before inventory data fetching
+        // Set loading to false here before inventory data fetching
         setLoading(false);
         
-        // Fetch inventory data ONLY for common products in the background
-        // This won't block the UI from loading
+        // Fetch inventory data for all recommended products
         fetchInventoryData(mergedProducts).catch((err) => {
           console.error("Error fetching inventory data:", err);
         });
         
-        // Add this: Fetch UniCompra product data
+        // Fetch UniCompra product data
         await fetchUniCompraProducts();
         
       } catch (err) {
@@ -588,6 +587,167 @@ const SucursalPage: React.FC = () => {
     );
   };
 
+  // Add a utility function to get badge class based on recommendation type
+  const getRecommendationBadgeClass = (type: string | undefined) => {
+    if (!type) return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+    
+    switch(type.toLowerCase()) {
+      case 'frecuente':
+      case 'muy frecuente':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200';
+      case 'regular':
+        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200';
+      case 'ocasional':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200';
+      case 'raro':
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200';
+      case 'nunca pedido':
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200';
+      default:
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200';
+    }
+  };
+
+  // Function to export data to Excel
+  const exportToExcel = () => {
+    if (!predictionData?.commonProducts?.length) {
+      alert('No hay datos para exportar');
+      return;
+    }
+
+    // Create worksheet data
+    const worksheetData = predictionData.commonProducts.map((product, index) => {
+      const uniCompraProduct = findUniCompraProduct(product.nombre);
+      const inventoryItem = inventory[product.nombre];
+      const boxCount = uniCompraProduct 
+        ? calculatePackQuantity(product.cantidadSugerida || 0, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA) 
+        : 'N/A';
+      const cedisInventory = inventoryItem 
+        ? inventoryItem.existencia > 0 
+          ? uniCompraProduct 
+            ? `${calculatePackQuantity(inventoryItem.existencia, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA)} cajas en CEDIS` 
+            : `${inventoryItem.existencia} pz en CEDIS`
+          : 'No disponible en CEDIS' 
+        : 'Sin datos CEDIS';
+      
+      return {
+        'No': index + 1,
+        'Producto': product.nombre,
+        'Clave Producto': uniCompraProduct?.CLAVE_ARTICULO || 'N/A',
+        'Cajas Recomendadas': boxCount,
+        'Piezas Recomendadas': product.cantidadSugerida,
+        'Disponibilidad CEDIS': cedisInventory,
+        'Tipo Recomendación': product.tipo_recomendacion || 'N/A',
+        'Frecuencia Otras Sucursales': product.frecuencia_otras || 0,
+        'Número de Sucursales': product.num_sucursales || 0,
+        'Estado': product.ordenado === true ? 'Ordenado' : 
+                 product.ordenado === false ? 'No ordenado' : 'Sin decisión',
+        'Razón (si no ordenado)': product.ordenado === false && product.razon_no_ordenado 
+          ? product.razon_no_ordenado === 'hay_en_tienda' 
+            ? 'Hay producto en tienda' 
+            : product.razon_no_ordenado === 'no_hay_en_cedis' 
+              ? 'No hay producto en CEDIS' 
+              : product.comentario_no_ordenado || product.razon_no_ordenado
+          : ''
+      };
+    });
+
+    // Create worksheet and workbook
+    const worksheet = xlsxUtils.json_to_sheet(worksheetData);
+    const workbook = xlsxUtils.book_new();
+    xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
+
+    // Generate Excel file
+    const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'array' });
+    const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    
+    // Create download link
+    const fileName = `Productos_${branchName.replace(/\s+/g, '_')}_${predictionData.date}.xlsx`;
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    
+    // Clean up
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  // Function to export data to PDF
+  const exportToPDF = () => {
+    if (!predictionData?.commonProducts?.length) {
+      alert('No hay datos para exportar');
+      return;
+    }
+
+    // Create new PDF document
+    const doc = new jsPDF();
+    
+    // Add title
+    doc.setFontSize(18);
+    doc.text(`Productos Recomendados - ${branchName}`, 14, 22);
+    
+    // Add date
+    doc.setFontSize(12);
+    doc.text(`Fecha: ${predictionData.date}`, 14, 30);
+    
+    // Prepare table data
+    const tableRows = predictionData.commonProducts.map((product, index) => {
+      const uniCompraProduct = findUniCompraProduct(product.nombre);
+      const inventoryItem = inventory[product.nombre];
+      const boxCount = uniCompraProduct 
+        ? calculatePackQuantity(product.cantidadSugerida || 0, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA) 
+        : 'N/A';
+      const cedisInventory = inventoryItem 
+        ? inventoryItem.existencia > 0 
+          ? uniCompraProduct 
+            ? `${calculatePackQuantity(inventoryItem.existencia, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA)} cajas` 
+            : `${inventoryItem.existencia} pz` 
+          : 'No disponible' 
+        : 'Sin datos';
+      
+      return [
+        index + 1,
+        product.nombre,
+        uniCompraProduct?.CLAVE_ARTICULO || 'N/A',
+        boxCount,
+        cedisInventory,
+        product.tipo_recomendacion || 'N/A',
+        product.frecuencia_otras || 0,
+        product.num_sucursales || 0,
+        product.ordenado === true ? 'Ordenado' : 
+        product.ordenado === false ? 'No ordenado' : 'Sin decisión'
+      ];
+    });
+    
+    // Add table to PDF
+    (doc as any).autoTable({
+      head: [['#', 'Producto', 'Clave', 'Cajas', 'Inventario', 'Tipo Rec.', 'Frec.', 'Suc.', 'Estado']],
+      body: tableRows,
+      startY: 35,
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+      columnStyles: { 
+        0: { cellWidth: 8 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 12 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 10 },
+        7: { cellWidth: 10 },
+        8: { cellWidth: 20 }
+      }
+    });
+    
+    // Save PDF
+    const fileName = `Productos_${branchName.replace(/\s+/g, '_')}_${predictionData.date}.pdf`;
+    doc.save(fileName);
+    setShowExportMenu(false);
+  };
+
   return (
     <div>
       <header className="bg-white dark:bg-gray-800 shadow-sm">
@@ -614,6 +774,42 @@ const SucursalPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {/* Add export dropdown button */}
+              {!loading && !error && predictionData && (
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700 flex items-center"
+                  >
+                    <FiDownload className="mr-2" />
+                    Exportar
+                  </button>
+                  
+                  {showExportMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
+                      <ul className="py-1">
+                        <li>
+                          <button
+                            onClick={exportToExcel}
+                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
+                            Exportar a Excel
+                          </button>
+                        </li>
+                        <li>
+                          <button
+                            onClick={exportToPDF}
+                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
+                            Exportar a PDF
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
                 systemStatus === 'online' 
                   ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200' 
@@ -664,30 +860,22 @@ const SucursalPage: React.FC = () => {
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                      Análisis de Productos
+                      Productos Recomendados
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {predictionData.commonProducts?.length || 0} productos analizados para esta sucursal • Fecha: {predictionData.date}
+                      {predictionData.commonProducts?.length || 0} productos recomendados para esta sucursal • Fecha: {predictionData.date}
                     </p>
                   </div>
                   
-                  {/* Lista de productos con detalles completos */}
+                  {/* Lista simplificada de productos */}
                   <div className="divide-y divide-gray-200 dark:divide-gray-700">
                     {predictionData.commonProducts?.map((product, index) => {
-                      const isExpanded = expandedProduct === product.nombre;
-                      const differenceClass = getDifferenceClass(product.porcentajeDiferencia || 0);
-                      // Get inventory data for this product
                       const inventoryItem = inventory[product.nombre];
-                      
-                      // Get matching UniCompra product
                       const uniCompraProduct = findUniCompraProduct(product.nombre);
                       
                       return (
                         <div key={index} className="bg-white dark:bg-gray-800">
-                          {/* Cabecera del producto (siempre visible) */}
-                          <div 
-                            className="px-6 py-4 flex items-center justify-between"
-                          >
+                          <div className="px-6 py-4 flex items-center justify-between">
                             <div className="flex items-center space-x-3">
                               <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center bg-indigo-100 dark:bg-indigo-900/30">
                                 <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
@@ -699,16 +887,11 @@ const SucursalPage: React.FC = () => {
                                   {product.nombre}
                                 </h3>
                                 
-                                {/* Add UniCompra barcode and pack info */}
                                 {uniCompraProduct && (
                                   <div className="mt-1 flex flex-col">
                                     <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
                                       CLAVE PRODUCTO: {uniCompraProduct.CLAVE_ARTICULO || 'N/A'}
                                     </span>
-                                    <div className="flex space-x-4 text-xs text-gray-500 dark:text-gray-400">
-                            
-                            
-                                    </div>
                                   </div>
                                 )}
                                 
@@ -723,11 +906,10 @@ const SucursalPage: React.FC = () => {
                                 </p>
                               </div>
                               
-                              {/* Only show the button if feedback doesn't exist (ordenado is undefined) */}
                               {product.ordenado === undefined && (
                                 <button
                                   onClick={(e) => {
-                                    e.stopPropagation(); // Prevent row expansion when clicking button
+                                    e.stopPropagation();
                                     handleOpenFeedbackModal(product);
                                   }}
                                   className="px-2 py-1 text-xs font-medium text-white bg-[#0B9ED9] rounded hover:bg-[#0989c0] flex items-center"
@@ -738,8 +920,7 @@ const SucursalPage: React.FC = () => {
                               )}
                             </div>
                             
-                            <div className="flex items-center gap-2">
-                              {/* Inventory status - Modified to show boxes instead of pieces */}
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
                               {inventoryItem ? (
                                 <div className="flex items-center bg-gray-50 dark:bg-gray-700 rounded-lg px-2 py-1">
                                   <div className={`w-2 h-2 rounded-full ${
@@ -763,9 +944,20 @@ const SucursalPage: React.FC = () => {
                                 </div>
                               )}
                               
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getLevelBadgeClass(product.confianzaPrediccion)}`}>
-                                {getConfidenceLevel(product.confianzaPrediccion)}
-                              </span>
+                              {/* Replace confidence with recommendation type */}
+                              {product.tipo_recomendacion && (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRecommendationBadgeClass(product.tipo_recomendacion)}`}>
+                                  {product.tipo_recomendacion}
+                                </span>
+                              )}
+                              
+                              {/* Add frequency and branch count */}
+                              {product.frecuencia_otras !== undefined && product.num_sucursales !== undefined && (
+                                <span className="text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 px-2 py-0.5 rounded">
+                                  {product.frecuencia_otras} veces en {product.num_sucursales} sucursales
+                                </span>
+                              )}
+                              
                               {renderOrderStatus(product)}
                             </div>
                           </div>
@@ -779,9 +971,9 @@ const SucursalPage: React.FC = () => {
                       <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                       </svg>
-                      <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay productos comunes</h3>
+                      <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No hay productos disponibles</h3>
                       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        No hay productos que aparezcan tanto en predicciones como en recomendaciones para esta sucursal.
+                        No hay productos recomendados para esta sucursal.
                       </p>
                     </div>
                   )}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import type { IconType } from 'react-icons';
+import { interpretSystemStatus } from '../utils/systemStatus';
 
 // Intentar importar los iconos con un fallback
 let FiRefreshCw: IconType;
@@ -118,21 +119,17 @@ export default function DebugPage() {
   
   // Check the system status
   const checkSystemStatus = async () => {
-    setLoading(true);
-    
     try {
       const response = await fetch('/api/proxy?endpoint=estado');
       if (response.ok) {
         const data = await response.json();
-        setSystemStatus(data.estado === 'online' ? 'online' : 'offline');
+        setSystemStatus(interpretSystemStatus(data)); // Usar la función simplificada
       } else {
-        setSystemStatus('offline');
+        setSystemStatus("offline");
       }
     } catch (err) {
       console.error("Error checking status:", err);
       setSystemStatus('offline');
-    } finally {
-      setLoading(false);
     }
   };
   

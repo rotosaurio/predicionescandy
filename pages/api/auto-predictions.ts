@@ -3,7 +3,7 @@ import { connectToDatabase } from '../../lib/mongodb';
 import { format, subDays, parseISO, startOfDay, endOfDay, nextMonday, setHours, addDays } from 'date-fns';
 
 // API endpoint del modelo de predicción
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 const API_ENDPOINTS = {
   PREDECIR: `${API_BASE_URL}/api/predecir`,
   SUCURSALES: `${API_BASE_URL}/api/sucursales`,
@@ -345,15 +345,9 @@ function needsPrediction(lastPredictionDate: Date | null): boolean {
     return true;
   }
   
-  // Conseguir la fecha del lunes anterior
-  const today = new Date();
-  const lastMonday = subDays(today, (today.getDay() + 6) % 7);
-  const lastMondayStart = startOfDay(lastMonday);
-  
-  // Si la última predicción es anterior al último lunes, necesitamos una nueva
-  const needsNew = lastPredictionDate < lastMondayStart;
-  console.log(`[AUTO] Última predicción: ${lastPredictionDate.toISOString()}, Último lunes: ${lastMondayStart.toISOString()}, Necesita nueva: ${needsNew}`);
-  return needsNew;
+  // Siempre permitir nuevas predicciones independientemente de la fecha
+  console.log('[AUTO] Permitiendo generar nueva predicción aunque ya existan para esta semana');
+  return true;
 }
 
 // Función para asegurar que la colección existe
@@ -375,8 +369,51 @@ async function ensureCollectionExists(db: any, collectionName: string): Promise<
 
 // Function to check if inventory exists for a specific date
 async function hasInventoryForDate(db: any, date: string): Promise<boolean> {
+  // Check exact match first
   const inventoryMetadata = await db.collection('inventariocedis_metadata').findOne({ inventoryDate: date });
-  return !!inventoryMetadata;
+  if (inventoryMetadata) {
+    console.log(`[AUTO] Encontrado inventario exacto para la fecha ${date}`);
+    return true;
+  }
+
+  // Try alternative date formats
+  // Parse the input date and create alternative formats
+  const parts = date.split('/');
+  if (parts.length === 3) {
+    const day = parts[0];
+    const month = parts[1]; 
+    const year = parts[2];
+    
+    const alternativeDates = [
+      `${year}-${month}-${day}`,   // yyyy-MM-dd
+      `${day}-${month}-${year}`,   // dd-MM-yyyy
+      `${month}/${day}/${year}`,   // MM/dd/yyyy
+      `${year}/${month}/${day}`    // yyyy/MM/dd
+    ];
+    
+    for (const altDate of alternativeDates) {
+      const result = await db.collection('inventariocedis_metadata').findOne({ inventoryDate: altDate });
+      if (result) {
+        console.log(`[AUTO] Encontrado inventario con formato alternativo: ${altDate}`);
+        return true;
+      }
+    }
+  }
+
+  // If no exact match, check latest inventory
+  const latestInventory = await db.collection('inventariocedis_metadata')
+    .find({})
+    .sort({ _id: -1 })
+    .limit(1)
+    .toArray();
+  
+  if (latestInventory && latestInventory.length > 0) {
+    console.log(`[AUTO] No se encontró inventario para ${date}, pero el inventario más reciente es de ${latestInventory[0].inventoryDate}`);
+  } else {
+    console.log(`[AUTO] No se encontró ningún registro de inventario en la base de datos`);
+  }
+  
+  return false;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -419,12 +456,65 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const today = new Date();
     const fechaActual = format(today, 'dd/MM/yyyy');
 
+    // Check if inventory check should be bypassed (for testing or emergency runs)
+    const skipInventoryCheck = req.query.skipInventoryCheck === 'true' || req.body?.skipInventoryCheck === true;
+    
+    // Option to use latest inventory if available
+    const useLatestInventory = req.query.useLatestInventory === 'true' || req.body?.useLatestInventory === true;
+    
     // Check if inventory exists for the current date
-    const inventoryExists = await hasInventoryForDate(db, fechaActual);
+    let inventoryExists = skipInventoryCheck ? true : await hasInventoryForDate(db, fechaActual);
+    
+    // If no inventory for today but useLatestInventory is true, check for any recent inventory
+    if (!inventoryExists && useLatestInventory) {
+      const latestInventory = await db.collection('inventariocedis_metadata')
+        .find({})
+        .sort({ _id: -1 })
+        .limit(1)
+        .toArray();
+      
+      if (latestInventory && latestInventory.length > 0) {
+        console.log(`[AUTO] Usando el inventario más reciente del ${latestInventory[0].inventoryDate}`);
+        inventoryExists = true;
+      }
+    }
+    
     if (!inventoryExists) {
+      console.log(`[AUTO] No hay inventario disponible para la fecha ${fechaActual}.`);
+      
+      // List all available inventory dates for debugging
+      const allInventories = await db.collection('inventariocedis_metadata')
+        .find({})
+        .sort({ _id: -1 })
+        .limit(10)
+        .toArray();
+      
+      const availableDates = allInventories.map((inv: any) => inv.inventoryDate);
+      console.log(`[AUTO] Fechas de inventario disponibles: ${JSON.stringify(availableDates)}`);
+      
+      // Check if we have inventory for any recent date (last 7 days)
+      let recentInventoryFound = false;
+      let latestInventoryDate = null;
+      
+      for (let i = 1; i <= 7; i++) {
+        const pastDate = format(subDays(today, i), 'dd/MM/yyyy');
+        if (await hasInventoryForDate(db, pastDate)) {
+          recentInventoryFound = true;
+          latestInventoryDate = pastDate;
+          break;
+        }
+      }
+      
       return res.status(400).json({
         success: false,
         message: `No hay inventario disponible para la fecha ${fechaActual}. Por favor, suba un inventario antes de generar predicciones.`,
+        inventoryStatus: {
+          currentDateHasInventory: false, 
+          recentInventoryFound,
+          latestInventoryDate,
+          availableInventories: availableDates
+        },
+        tip: "Para omitir esta verificación, añada ?skipInventoryCheck=true o ?useLatestInventory=true a la URL."
       });
     }
     
@@ -560,12 +650,102 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           console.log(`[AUTO] Predicción semanal completa para ${sucursal}`);
         } else {
-          console.log(`[AUTO] Predicción semanal reciente ya existe para ${sucursal}, omitiendo`);
+          console.log(`[AUTO] Predicción semanal reciente ya existe para ${sucursal}, pero generando una nueva`);
           results.push({
             sucursal,
-            status: 'skipped',
-            message: 'Predicción semanal reciente ya existe',
+            status: 'generating',
+            message: 'Generando nueva predicción aunque ya exista una reciente',
             lastUpdate: lastPrediction[0].timestamp
+          });
+          
+          // Generar predicciones para toda la semana
+          const weeklyPrediction = await generateWeeklyPredictionForBranch(sucursal, today);
+          
+          const timestamp = new Date().toISOString();
+          const dateStr = format(today, 'yyyy-MM-dd');
+          const weekEndDate = format(addDays(today, 6), 'yyyy-MM-dd');
+          
+          // Guardar predicciones consolidadas en la colección semanal
+          const weeklyDocument = {
+            timestamp,
+            branch: sucursal,
+            dateRange: {
+              start: dateStr,
+              end: weekEndDate
+            },
+            predictions: weeklyPrediction.consolidated.predicciones,
+            recommendations: weeklyPrediction.consolidated.recomendaciones,
+            resultados: weeklyPrediction.consolidated.resultados,
+            dailyPredictions: weeklyPrediction.predictionsByDay
+          };
+          
+          console.log(`[AUTO] Guardando predicciones semanales en ${weeklyCollectionName}`);
+          await db.collection(weeklyCollectionName).insertOne(weeklyDocument);
+          
+          // Guardar también la predicción para el día actual en las colecciones estándar
+          const currentDateStr = format(today, 'yyyy-MM-dd');
+          const currentDayData = weeklyPrediction.predictionsByDay[currentDateStr];
+          
+          if (currentDayData) {
+            // Guardar predicciones del día actual en su colección específica
+            const predictionDocument = {
+              timestamp,
+              branch: sucursal,
+              date: dateStr,
+              predictions: currentDayData.predicciones,
+              isPartOfWeekly: true
+            };
+            
+            console.log(`[AUTO] Guardando predicciones del día actual en ${predictionCollectionName}`);
+            await db.collection(predictionCollectionName).insertOne(predictionDocument);
+            
+            // Guardar recomendaciones del día actual en su colección específica
+            const recommendationDocument = {
+              timestamp,
+              branch: sucursal,
+              date: dateStr,
+              recommendations: currentDayData.recomendaciones,
+              isPartOfWeekly: true
+            };
+            
+            console.log(`[AUTO] Guardando recomendaciones del día actual en ${recommendationCollectionName}`);
+            await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
+          }
+          
+          // Guardar también en el historial general
+          const historyDocument = {
+            timestamp,
+            branch: sucursal,
+            date: dateStr,
+            isWeeklyPrediction: true,
+            dateRange: {
+              start: dateStr,
+              end: weekEndDate
+            },
+            predictions: weeklyPrediction.consolidated.predicciones,
+            recommendations: weeklyPrediction.consolidated.recomendaciones,
+            resultados: weeklyPrediction.consolidated.resultados
+          };
+          
+          console.log('[AUTO] Guardando en historial general (predictions_history)');
+          await db.collection('predictions_history').insertOne(historyDocument);
+          
+          // Guardar también en la colección general de predicciones semanales
+          console.log('[AUTO] Guardando en colección general de predicciones semanales');
+          await db.collection('weekly_predictions').insertOne({
+            ...historyDocument,
+            branch: sucursal
+          });
+          
+          results.push({
+            sucursal,
+            status: 'success',
+            message: 'Nueva predicción semanal generada correctamente',
+            lastUpdate: timestamp,
+            dateRange: {
+              start: dateStr,
+              end: weekEndDate
+            }
           });
         }
       } catch (error) {

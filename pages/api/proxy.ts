@@ -1,37 +1,90 @@
 import { NextApiRequest, NextApiResponse } from 'next';
+import axios from 'axios';
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-    responseLimit: '12mb',
-  },
-}
+// Use consistent API base URL across all files
+const API_BASE_URL = 'http://0.0.0.0:8000';
 
-// API configuration
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+// Map of frontend endpoint names to actual API endpoints
+const ENDPOINT_MAP: Record<string, string> = {
+  // Dataset endpoints
+  'datasets': '/api/datasets',
+  'delete_dataset': '/api/delete_dataset',
+  'upload_dataset': '/api/upload-dataset',
+  'dataset_details': '/api/dataset', // Will be appended with /{id} in the handler
+  'datasets_info': '/api/datasets/info', // New endpoint for dataset directory info
+  
+  // Training endpoints
+  'training-status': '/api/training-status',
+  'retrain-model': '/api/retrain-model',
+  'retrain-incremental': '/api/retrain-incremental',
+  'retrain-automatic': '/api/retrain-automatic', // New automatic retraining endpoint
+  'reentrenar': '/api/reentrenar',
+  
+  // Prediction endpoints
+  'predecir': '/api/predecir',
+  'recomendaciones': '/api/recomendaciones',
+  'predict_week': '/api/predecir', // We'll implement week prediction in our code
+  
+  // System endpoints
+  'estado': '/api/estado',
+  'sucursales': '/api/sucursales',
+  'config': '/config',
+  'info': '/info',
+  
+  // Order endpoints
+  'registrar_pedido': '/api/registrar_pedido',
+  'registrar_pedidos_batch': '/api/registrar_pedidos_batch',
+  
+  // Predictions History endpoint
+  'predictions-history': '/api/predictions-history',
+  
+  // Auto Predictions endpoint
+  'auto-predictions': '/api/auto-predictions'
+};
+
+// List of endpoints that should accept POST requests
+const POST_ALLOWED_ENDPOINTS = [
+  'predecir', 
+  'upload_dataset',
+  'delete_dataset',
+  'registrar_pedido',
+  'registrar_pedidos_batch',
+  'retrain-model',
+  'retrain-incremental',
+  'retrain-automatic',
+  'auto-predictions',
+  'predictions-history'
+];
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Solo permitir métodos POST y GET
-  if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ success: false, message: 'Method Not Allowed' });
-  }
-
   try {
-    console.log(`Proxying ${req.method} request to Hugging Face`);
+    // Get the endpoint from query params
+    const { endpoint } = req.query;
     
-    // Obtener el endpoint que se quiere llamar
-    const endpoint = req.query.endpoint as string;
-    
-    if (!endpoint) {
-      return res.status(400).json({ success: false, message: 'Missing endpoint parameter' });
+    if (!endpoint || typeof endpoint !== 'string' || !ENDPOINT_MAP[endpoint]) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing endpoint parameter' });
+    }
+
+    // Check if the method is allowed for this endpoint
+    if (req.method === 'POST' && !POST_ALLOWED_ENDPOINTS.includes(endpoint)) {
+      return res.status(405).json({ success: false, message: 'Method not allowed for this endpoint' });
     }
     
-    const url = `${API_BASE_URL}/api/${endpoint}`;
-    console.log(`Target URL: ${url}`);
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      return res.status(405).json({ success: false, message: 'Only GET and POST methods are allowed' });
+    }
     
-    // Preparar opciones para fetch
+    // Construct the final URL
+    const apiUrl = `${API_BASE_URL}${ENDPOINT_MAP[endpoint]}`;
+    
+    console.log(`Proxying request to: ${apiUrl}`);
+    
+    // Special logging for retrain-model endpoint
+    if (endpoint === 'retrain-model') {
+      console.log('Retrain model request body:', req.body);
+    }
+    
+    // Make the request to the API
     const fetchOptions: RequestInit = {
       method: req.method,
       headers: {
@@ -39,59 +92,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     };
     
-    // Si es POST, incluir el body
+    // Include body for POST requests
     if (req.method === 'POST' && req.body) {
       fetchOptions.body = JSON.stringify(req.body);
-    }
-    
-    console.log(`Request options:`, {
-      method: fetchOptions.method,
-      bodyLength: fetchOptions.body ? (fetchOptions.body as string).length : 0
-    });
-    
-    // Hacer la petición a la API externa
-    const response = await fetch(url, fetchOptions);
-    console.log(`Response status:`, response.status);
-    
-    if (endpoint === 'estado') {
-      // Manejo especial para el endpoint 'estado'
-      try {
-        const data = await response.json();
-        console.log("Estado API response:", data);
-        
-        // Consideramos que el sistema está online si la respuesta fue exitosa,
-        // incluso si la GPU no está disponible
-        const isOnline = response.ok || data.branches > 0 || data.model_loaded === "Yes";
-        
-        return res.status(200).json({
-          success: true,
-          estado: isOnline ? "online" : "offline",
-          originalResponse: data,
-          message: isOnline 
-            ? "API is operational (even without GPU)" 
-            : "API is not operational"
-        });
-      } catch (err) {
-        return res.status(200).json({
-          success: false,
-          estado: "offline",
-          message: "Failed to parse API response"
-        });
-      }
-    } else {
-      // Procesamiento normal para otros endpoints
-      const data = await response.json();
       
-      // Responder con los datos recibidos
-      return res.status(response.status).json(data);
+      // Special logging for retrain-model endpoint
+      if (endpoint === 'retrain-model') {
+        console.log('Serialized request body:', fetchOptions.body);
+      }
     }
+    
+    const apiResponse = await fetch(apiUrl, fetchOptions);
+    
+    // Get the data and status code
+    let data;
+    try {
+      data = await apiResponse.json();
+    } catch (e) {
+      console.error('Error parsing JSON response:', e);
+      data = { error: 'Invalid JSON response' };
+    }
+    
+    const statusCode = apiResponse.status;
+    
+    // Special logging for retrain-model endpoint errors
+    if (endpoint === 'retrain-model' && statusCode >= 400) {
+      console.error('Retrain model error response:', {
+        statusCode,
+        data
+      });
+    }
+    
+    // Save the original response for reference
+    const responseWithOriginal = {
+      ...data,
+      originalResponse: data,
+      statusCode,
+    };
+    
+    // Return the response with the same status code
+    return res.status(statusCode).json(responseWithOriginal);
     
   } catch (error) {
-    console.error('Error in API proxy:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Error in API proxy', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    console.error('API proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error connecting to backend API',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 }

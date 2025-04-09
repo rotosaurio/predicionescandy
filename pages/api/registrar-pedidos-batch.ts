@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '../../lib/mongodb';
 import { isValidRecordSetFormat, createRecordSet } from './recordset-helper';
 
-const API_BASE_URL = 'http://0.0.0.0:8000';
+const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
 const API_ENDPOINT = `${API_BASE_URL}/api/registrar_pedidos_batch`;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -4,7 +4,7 @@ import path from 'path';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 // Use consistent API base URL
-const API_BASE_URL = 'http://0.0.0.0:8000';
+const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
 
 /**
  * Utility to check and debug dataset issues

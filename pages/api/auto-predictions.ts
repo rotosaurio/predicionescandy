@@ -3,7 +3,7 @@ import { connectToDatabase } from '../../lib/mongodb';
 import { format, subDays, parseISO, startOfDay, endOfDay, nextMonday, setHours, addDays } from 'date-fns';
 
 // API endpoint del modelo de predicción
-const API_BASE_URL = 'http://0.0.0.0:8000';
+const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
 const API_ENDPOINTS = {
   PREDECIR: `${API_BASE_URL}/api/predecir`,
   SUCURSALES: `${API_BASE_URL}/api/sucursales`,

@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 
 // Use consistent API base URL across all files
-const API_BASE_URL = 'http://0.0.0.0:8000';
+const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
 
 // Map of frontend endpoint names to actual API endpoints
 const ENDPOINT_MAP: Record<string, string> = {

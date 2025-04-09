@@ -18,7 +18,7 @@ const getApiBaseUrl = () => {
   }
   
   // Use the exact URL that's working in the logs
-  return 'http://0.0.0.0:8000';
+  return 'https://rotosaurio-candymodel.hf.space';
 };
 
 export const checkSystemStatus = async (): Promise<SystemStatus> => {

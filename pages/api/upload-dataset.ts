@@ -10,7 +10,7 @@ export const config = {
   },
 };
 
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 const API_ENDPOINT = `${API_BASE_URL}/api/upload-dataset`;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

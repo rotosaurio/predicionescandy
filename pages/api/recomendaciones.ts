@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '../../lib/mongodb';
 
 // API endpoint del modelo de predicción
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 const API_ENDPOINTS = {
   RECOMENDACIONES: `${API_BASE_URL}/api/recomendaciones`,
 };

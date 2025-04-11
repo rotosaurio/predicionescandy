@@ -8,7 +8,7 @@ import FormData from 'form-data'; // Import Node.js form-data package
 import { isValidRecordSetFormat, createRecordSet, convertSingleRecordToRecordSet } from './recordset-helper';
 
 // Update API base URL to match other endpoints
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 
 export const config = {
   api: {

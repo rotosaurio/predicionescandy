@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 const API_ENDPOINTS = {
   ESTADO: `${API_BASE_URL}/api/estado`,
 };

@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 
-const API_BASE_URL = 'https://rotosaurio-candymodel.hf.space';
+const API_BASE_URL = 'http://0.0.0.0:8000';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

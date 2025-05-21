@@ -64,12 +64,11 @@ interface ResultadoPrediccion {
   CANTIDAD_ULTIMO_PEDIDO?: number;
 }
 
-interface PredictionsByDay {
-  [date: string]: {
-    predicciones: Prediction[];
-    recomendaciones: Recommendation[];
-    resultados: ResultadoPrediccion[];
-  }
+interface PredictionResult {
+  predicciones: Prediction[];
+  recomendaciones: Recommendation[];
+  resultados: ResultadoPrediccion[];
+  productos_coincidentes: Prediction[];
 }
 
 // Función para normalizar el nombre de la sucursal para la colección
@@ -85,7 +84,7 @@ async function generatePredictionForBranchAndDate(sucursal: string, fecha: strin
     const requestBody = {
       fecha,
       sucursal,
-      top_n: 250,  // Aumentado de 100 a 250 para obtener más resultados
+      top_n: 200,  // Solo necesitamos 200 predicciones y 200 recomendaciones
       modo: "avanzado",
       num_muestras: 15,
       incluir_recomendaciones: true,
@@ -138,39 +137,22 @@ async function generatePredictionForBranchAndDate(sucursal: string, fecha: strin
       }));
     
     console.log(`[AUTO] Separación completada para ${fecha}: ${predicciones.length} predicciones, ${recomendaciones.length} recomendaciones`);
+    // Encontrar productos que coinciden entre predicciones y recomendaciones
+    const productosPrediccionSet = new Set(predicciones.map((p: Prediction) => p.nombre.toLowerCase()));
+    const productosRecomendacionSet = new Set(recomendaciones.map((r: Recommendation) => r.nombre.toLowerCase()));
     
-    // Verificar si necesitamos obtener más recomendaciones
-    const productosConRecomendacion = new Set(recomendaciones.map((rec: Recommendation) => rec.nombre));
-    const recomendacionesFaltantes = predicciones.filter((pred: Prediction) => !productosConRecomendacion.has(pred.nombre));
+    // Productos que están tanto en predicciones como en recomendaciones
+    const productosCoincidentes = predicciones.filter((p: Prediction) => 
+      productosRecomendacionSet.has(p.nombre.toLowerCase())
+    );
     
-    // Si faltan recomendaciones, intentamos obtener más del endpoint específico
-    if (recomendacionesFaltantes.length > 0) {
-      console.log(`[AUTO] Faltan recomendaciones para ${recomendacionesFaltantes.length} productos. Intentando obtener más recomendaciones del endpoint específico.`);
-      
-      try {
-        const recomendacionesAdicionales = await obtenerRecomendacionesAdicionales(sucursal);
-        
-        // Filtrar las recomendaciones adicionales para quedarnos con las que corresponden a productos sin recomendación
-        const nuevasRecomendaciones = recomendacionesAdicionales.filter(rec => 
-          recomendacionesFaltantes.some((pred: Prediction) => pred.nombre === rec.nombre)
-        );
-        
-        if (nuevasRecomendaciones.length > 0) {
-          console.log(`[AUTO] Se obtuvieron ${nuevasRecomendaciones.length} recomendaciones adicionales del endpoint específico.`);
-          recomendaciones.push(...nuevasRecomendaciones);
-        } else {
-          console.log(`[AUTO] No se encontraron recomendaciones adicionales útiles en el endpoint específico.`);
-        }
-      } catch (error) {
-        console.error(`[AUTO] Error al obtener recomendaciones adicionales:`, error);
-        // Continuamos con el proceso aunque no se puedan obtener recomendaciones adicionales
-      }
-    }
-      
+    console.log(`[AUTO] Se encontraron ${productosCoincidentes.length} productos que coinciden entre predicciones y recomendaciones`);
+    
     return {
       predicciones,
       recomendaciones,
-      resultados: data.resultados
+      resultados: data.resultados,
+      productos_coincidentes: productosCoincidentes
     };
   } catch (error) {
     console.error(`[AUTO] Error generando predicción para ${sucursal} (${fecha}):`, error);
@@ -230,112 +212,6 @@ async function obtenerRecomendacionesAdicionales(sucursal: string): Promise<Reco
     console.error(`[AUTO] Error obteniendo recomendaciones adicionales para ${sucursal}:`, error);
     return [];
   }
-}
-
-// Función para generar predicciones para una sucursal durante una semana completa
-async function generateWeeklyPredictionForBranch(sucursal: string, startDate: Date) {
-  try {
-    console.log(`[AUTO] Generando predicciones semanales para sucursal: ${sucursal}`);
-    
-    const predictionsByDay: PredictionsByDay = {};
-    
-    // Generar predicciones para los próximos 7 días
-    for (let i = 0; i < 7; i++) {
-      const currentDate = addDays(startDate, i);
-      const fechaFormateada = format(currentDate, 'dd/MM/yyyy');
-      const dateStr = format(currentDate, 'yyyy-MM-dd');
-      
-      try {
-        const dailyPrediction = await generatePredictionForBranchAndDate(sucursal, fechaFormateada);
-        predictionsByDay[dateStr] = dailyPrediction;
-        console.log(`[AUTO] Predicción para ${dateStr} completada`);
-      } catch (error) {
-        console.error(`[AUTO] Error en predicción para ${dateStr}:`, error);
-        // Continuamos con el siguiente día aunque haya error
-      }
-    }
-    
-    // Consolidar predicciones de toda la semana
-    const consolidatedPredictions = await consolidateWeeklyPredictions(predictionsByDay);
-    console.log(`[AUTO] Predicciones semanales consolidadas para ${sucursal}: ${consolidatedPredictions.predicciones.length} predicciones, ${consolidatedPredictions.recomendaciones.length} recomendaciones`);
-    
-    return {
-      predictionsByDay,
-      consolidated: consolidatedPredictions
-    };
-  } catch (error) {
-    console.error(`[AUTO] Error generando predicciones semanales para ${sucursal}:`, error);
-    throw error;
-  }
-}
-
-// Función para consolidar predicciones semanales eliminando duplicados
-async function consolidateWeeklyPredictions(predictionsByDay: PredictionsByDay) {
-  console.log(`[AUTO] Consolidando predicciones semanales`);
-  
-  // Maps para rastrear productos únicos
-  const uniquePredictionsMap = new Map<string, Prediction>();
-  const uniqueRecommendationsMap = new Map<string, Recommendation>();
-  const uniqueResultadosMap = new Map<string, ResultadoPrediccion>();
-  
-  // Set para rastrear todos los nombres de productos predichos
-  const allPredictedProductNames = new Set<string>();
-  
-  // Procesar cada día
-  Object.keys(predictionsByDay).forEach(date => {
-    const dailyData = predictionsByDay[date];
-    
-    // Procesar predicciones - mantener la cantidad más alta para cada producto
-    dailyData.predicciones.forEach(prediction => {
-      const key = prediction.nombre;
-      allPredictedProductNames.add(key); // Guardar nombre para asegurar recomendación
-      
-      if (!uniquePredictionsMap.has(key) || 
-          uniquePredictionsMap.get(key)!.cantidad < prediction.cantidad) {
-        uniquePredictionsMap.set(key, { ...prediction });
-      }
-    });
-    
-    // Procesar recomendaciones - mantener la cantidad más alta para cada producto
-    dailyData.recomendaciones.forEach(recommendation => {
-      const key = recommendation.nombre;
-      if (!uniqueRecommendationsMap.has(key) || 
-          uniqueRecommendationsMap.get(key)!.cantidad_sugerida < recommendation.cantidad_sugerida) {
-        uniqueRecommendationsMap.set(key, { ...recommendation });
-      }
-    });
-    
-    // Procesar resultados - mantener consistencia con predicciones/recomendaciones
-    dailyData.resultados.forEach(resultado => {
-      const key = resultado.NOMBRE_ARTICULO;
-      if (!uniqueResultadosMap.has(key) || 
-          uniqueResultadosMap.get(key)!.CANTIDAD_PREDICHA < resultado.CANTIDAD_PREDICHA) {
-        uniqueResultadosMap.set(key, { ...resultado });
-      }
-    });
-  });
-  
-  // Hacer recuento de productos sin recomendación pero con predicción
-  const productosConPredicionSinRecomendacion = Array.from(allPredictedProductNames)
-    .filter(productName => uniquePredictionsMap.has(productName) && !uniqueRecommendationsMap.has(productName));
-  
-  if (productosConPredicionSinRecomendacion.length > 0) {
-    console.log(`[AUTO] Hay ${productosConPredicionSinRecomendacion.length} productos con predicción pero sin recomendación asociada.`);
-    // Nota: No hacemos nada automáticamente aquí, simplemente lo reportamos
-  }
-  
-  // Convertir maps a arrays
-  const consolidatedPredictions = Array.from(uniquePredictionsMap.values());
-  const consolidatedRecommendations = Array.from(uniqueRecommendationsMap.values());
-  const consolidatedResultados = Array.from(uniqueResultadosMap.values());
-  
-  console.log(`[AUTO] Consolidación completa: ${consolidatedPredictions.length} predicciones, ${consolidatedRecommendations.length} recomendaciones, ${consolidatedResultados.length} resultados totales`);
-  
-  return {
-    predicciones: consolidatedPredictions,
-    recomendaciones: consolidatedRecommendations,
-    resultados: consolidatedResultados
-  };
 }
 
 // Función para verificar si se necesita una nueva predicción
@@ -452,7 +328,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
     
-    // Fecha actual para el inicio de las predicciones semanales
+    // Fecha actual para las predicciones
     const today = new Date();
     const fechaActual = format(today, 'dd/MM/yyyy');
 
@@ -526,6 +402,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const results = [];
     const errors = [];
     
+    // Obtener configuración del request (o valores por defecto)
+    const config = {
+      modo: req.body?.modo || req.query?.modo || "avanzado",
+      num_muestras: parseInt(req.body?.num_muestras || req.query?.num_muestras || "15"),
+      incluir_recomendaciones: req.body?.incluir_recomendaciones !== false && req.query?.incluir_recomendaciones !== "false",
+      incluir_motivos: req.body?.incluir_motivos !== false && req.query?.incluir_motivos !== "false",
+      force: req.body?.force === true || req.query?.force === "true"
+    };
+    
+    console.log(`[AUTO] Configuración recibida:`, config);
+    
     // Procesar cada sucursal
     for (const sucursal of sucursales) {
       try {
@@ -555,83 +442,67 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           : null;
         
         // Verificar si necesitamos una nueva predicción
-        if (needsPrediction(lastPredictionDate)) {
+        if (needsPrediction(lastPredictionDate) || config.force) {
           console.log(`[AUTO] Generando nueva predicción semanal para ${sucursal}`);
           
-          // Generar predicciones para toda la semana
-          const weeklyPrediction = await generateWeeklyPredictionForBranch(sucursal, today);
+          // Parámetros para la predicción
+          const parametros = {
+            top_n: 200,
+            modo: config.modo,
+            num_muestras: config.num_muestras,
+            incluir_recomendaciones: config.incluir_recomendaciones,
+            incluir_motivos: config.incluir_motivos
+          };
+          
+          console.log(`[AUTO] Parámetros de predicción para ${sucursal}:`, parametros);
+          
+          // Generar predicciones solo para el día actual
+          const resultado = await generatePredictionForBranchAndDate(sucursal, fechaActual);
           
           const timestamp = new Date().toISOString();
           const dateStr = format(today, 'yyyy-MM-dd');
-          const weekEndDate = format(addDays(today, 6), 'yyyy-MM-dd');
           
-          // Guardar predicciones consolidadas en la colección semanal
-          const weeklyDocument = {
+          // Guardar las predicciones diarias en la colección correspondiente
+          const predictionDocument = {
             timestamp,
             branch: sucursal,
-            dateRange: {
-              start: dateStr,
-              end: weekEndDate
-            },
-            predictions: weeklyPrediction.consolidated.predicciones,
-            recommendations: weeklyPrediction.consolidated.recomendaciones,
-            resultados: weeklyPrediction.consolidated.resultados,
-            dailyPredictions: weeklyPrediction.predictionsByDay
+            date: dateStr,
+            predictions: resultado.predicciones,
+            isPartOfWeekly: false
           };
           
-          console.log(`[AUTO] Guardando predicciones semanales en ${weeklyCollectionName}`);
-          await db.collection(weeklyCollectionName).insertOne(weeklyDocument);
+          console.log(`[AUTO] Guardando predicciones en ${predictionCollectionName}`);
+          await db.collection(predictionCollectionName).insertOne(predictionDocument);
           
-          // Guardar también la predicción para el día actual en las colecciones estándar
-          const currentDateStr = format(today, 'yyyy-MM-dd');
-          const currentDayData = weeklyPrediction.predictionsByDay[currentDateStr];
+          // Guardar las recomendaciones en su colección específica
+          const recommendationDocument = {
+            timestamp,
+            branch: sucursal,
+            date: dateStr,
+            recommendations: resultado.recomendaciones,
+            isPartOfWeekly: false
+          };
           
-          if (currentDayData) {
-            // Guardar predicciones del día actual en su colección específica
-            const predictionDocument = {
-              timestamp,
-              branch: sucursal,
-              date: dateStr,
-              predictions: currentDayData.predicciones,
-              isPartOfWeekly: true
-            };
-            
-            console.log(`[AUTO] Guardando predicciones del día actual en ${predictionCollectionName}`);
-            await db.collection(predictionCollectionName).insertOne(predictionDocument);
-            
-            // Guardar recomendaciones del día actual en su colección específica
-            const recommendationDocument = {
-              timestamp,
-              branch: sucursal,
-              date: dateStr,
-              recommendations: currentDayData.recomendaciones,
-              isPartOfWeekly: true
-            };
-            
-            console.log(`[AUTO] Guardando recomendaciones del día actual en ${recommendationCollectionName}`);
-            await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
-          }
+          console.log(`[AUTO] Guardando recomendaciones en ${recommendationCollectionName}`);
+          await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
           
-          // Guardar también en el historial general
+          // Guardar en el historial general
           const historyDocument = {
             timestamp,
             branch: sucursal,
             date: dateStr,
-            isWeeklyPrediction: true,
-            dateRange: {
-              start: dateStr,
-              end: weekEndDate
-            },
-            predictions: weeklyPrediction.consolidated.predicciones,
-            recommendations: weeklyPrediction.consolidated.recomendaciones,
-            resultados: weeklyPrediction.consolidated.resultados
+            isWeeklyPrediction: false,
+            predictions: resultado.predicciones,
+            recommendations: resultado.recomendaciones,
+            productos_coincidentes: resultado.productos_coincidentes,
+            resultados: resultado.resultados
           };
           
           console.log('[AUTO] Guardando en historial general (predictions_history)');
           await db.collection('predictions_history').insertOne(historyDocument);
           
-          // Guardar también en la colección general de predicciones semanales
-          console.log('[AUTO] Guardando en colección general de predicciones semanales');
+          // Guardar también en la colección semanal para mantener compatibilidad
+          console.log('[AUTO] Guardando en colección semanal para compatibilidad');
           await db.collection('weekly_predictions').insertOne({
             ...historyDocument,
             branch: sucursal
@@ -640,98 +511,63 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           results.push({
             sucursal,
             status: 'success',
-            message: 'Predicción semanal generada correctamente',
+            message: 'Predicción diaria generada correctamente',
             lastUpdate: timestamp,
-            dateRange: {
-              start: dateStr,
-              end: weekEndDate
-            }
+            date: dateStr,
+            productos_coincidentes: resultado.productos_coincidentes.length
           });
           
-          console.log(`[AUTO] Predicción semanal completa para ${sucursal}`);
+          console.log(`[AUTO] Predicción diaria completa para ${sucursal}`);
         } else {
-          console.log(`[AUTO] Predicción semanal reciente ya existe para ${sucursal}, pero generando una nueva`);
-          results.push({
-            sucursal,
-            status: 'generating',
-            message: 'Generando nueva predicción aunque ya exista una reciente',
-            lastUpdate: lastPrediction[0].timestamp
-          });
+          console.log(`[AUTO] Ya existe una predicción reciente para ${sucursal}, pero se generará una nueva`);
           
-          // Generar predicciones para toda la semana
-          const weeklyPrediction = await generateWeeklyPredictionForBranch(sucursal, today);
+          // Generar predicciones solo para el día actual
+          const resultado = await generatePredictionForBranchAndDate(sucursal, fechaActual);
           
           const timestamp = new Date().toISOString();
           const dateStr = format(today, 'yyyy-MM-dd');
-          const weekEndDate = format(addDays(today, 6), 'yyyy-MM-dd');
           
-          // Guardar predicciones consolidadas en la colección semanal
-          const weeklyDocument = {
+          // Guardar las predicciones diarias en la colección correspondiente
+          const predictionDocument = {
             timestamp,
             branch: sucursal,
-            dateRange: {
-              start: dateStr,
-              end: weekEndDate
-            },
-            predictions: weeklyPrediction.consolidated.predicciones,
-            recommendations: weeklyPrediction.consolidated.recomendaciones,
-            resultados: weeklyPrediction.consolidated.resultados,
-            dailyPredictions: weeklyPrediction.predictionsByDay
+            date: dateStr,
+            predictions: resultado.predicciones,
+            isPartOfWeekly: false
           };
           
-          console.log(`[AUTO] Guardando predicciones semanales en ${weeklyCollectionName}`);
-          await db.collection(weeklyCollectionName).insertOne(weeklyDocument);
+          console.log(`[AUTO] Guardando predicciones en ${predictionCollectionName}`);
+          await db.collection(predictionCollectionName).insertOne(predictionDocument);
           
-          // Guardar también la predicción para el día actual en las colecciones estándar
-          const currentDateStr = format(today, 'yyyy-MM-dd');
-          const currentDayData = weeklyPrediction.predictionsByDay[currentDateStr];
+          // Guardar las recomendaciones en su colección específica
+          const recommendationDocument = {
+            timestamp,
+            branch: sucursal,
+            date: dateStr,
+            recommendations: resultado.recomendaciones,
+            isPartOfWeekly: false
+          };
           
-          if (currentDayData) {
-            // Guardar predicciones del día actual en su colección específica
-            const predictionDocument = {
-              timestamp,
-              branch: sucursal,
-              date: dateStr,
-              predictions: currentDayData.predicciones,
-              isPartOfWeekly: true
-            };
-            
-            console.log(`[AUTO] Guardando predicciones del día actual en ${predictionCollectionName}`);
-            await db.collection(predictionCollectionName).insertOne(predictionDocument);
-            
-            // Guardar recomendaciones del día actual en su colección específica
-            const recommendationDocument = {
-              timestamp,
-              branch: sucursal,
-              date: dateStr,
-              recommendations: currentDayData.recomendaciones,
-              isPartOfWeekly: true
-            };
-            
-            console.log(`[AUTO] Guardando recomendaciones del día actual en ${recommendationCollectionName}`);
-            await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
-          }
+          console.log(`[AUTO] Guardando recomendaciones en ${recommendationCollectionName}`);
+          await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
           
-          // Guardar también en el historial general
+          // Guardar en el historial general
           const historyDocument = {
             timestamp,
             branch: sucursal,
             date: dateStr,
-            isWeeklyPrediction: true,
-            dateRange: {
-              start: dateStr,
-              end: weekEndDate
-            },
-            predictions: weeklyPrediction.consolidated.predicciones,
-            recommendations: weeklyPrediction.consolidated.recomendaciones,
-            resultados: weeklyPrediction.consolidated.resultados
+            isWeeklyPrediction: false,
+            predictions: resultado.predicciones,
+            recommendations: resultado.recomendaciones,
+            productos_coincidentes: resultado.productos_coincidentes,
+            resultados: resultado.resultados
           };
           
           console.log('[AUTO] Guardando en historial general (predictions_history)');
           await db.collection('predictions_history').insertOne(historyDocument);
           
-          // Guardar también en la colección general de predicciones semanales
-          console.log('[AUTO] Guardando en colección general de predicciones semanales');
+          // Guardar también en la colección semanal para mantener compatibilidad
+          console.log('[AUTO] Guardando en colección semanal para compatibilidad');
           await db.collection('weekly_predictions').insertOne({
             ...historyDocument,
             branch: sucursal
@@ -740,38 +576,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           results.push({
             sucursal,
             status: 'success',
-            message: 'Nueva predicción semanal generada correctamente',
+            message: 'Nueva predicción diaria generada correctamente',
             lastUpdate: timestamp,
-            dateRange: {
-              start: dateStr,
-              end: weekEndDate
-            }
+            date: dateStr,
+            productos_coincidentes: resultado.productos_coincidentes.length
           });
+          
+          console.log(`[AUTO] Predicción diaria completa para ${sucursal}`);
         }
       } catch (error) {
         console.error(`[AUTO] Error procesando sucursal ${sucursal}:`, error);
         errors.push({
           sucursal,
-          error: error instanceof Error ? error.message : 'Error desconocido'
+          error: error instanceof Error ? error.message : String(error)
         });
       }
     }
     
-    console.log(`[AUTO] Proceso finalizado. Éxitos: ${results.length}, Errores: ${errors.length}`);
-    
+    // Enviar respuesta con los resultados
     return res.status(200).json({
       success: true,
       results,
       errors,
-      nextScheduledUpdate: nextUpdateDate.toISOString()
+      nextScheduledUpdate: format(nextUpdateDate, 'yyyy-MM-dd HH:mm:ss')
     });
     
   } catch (error) {
-    console.error('[AUTO] Error general en auto-predictions:', error);
+    console.error('[AUTO] Error general:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error en el proceso de predicción automática semanal',
-      error: error instanceof Error ? error.message : 'Error desconocido'
+      message: error instanceof Error ? error.message : 'Error interno del servidor'
     });
   }
 }

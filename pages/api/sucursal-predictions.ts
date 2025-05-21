@@ -141,6 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             timestamp: weeklyPrediction[0].timestamp,
             recommendations: weeklyPrediction[0].recommendations || []
           },
+          productos_coincidentes: weeklyPrediction[0].productos_coincidentes || [],
           lastUpdate: weeklyPrediction[0].timestamp,
           message: "Se están mostrando las predicciones consolidadas para toda la semana"
         });
@@ -189,11 +190,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
       
+      // Buscar productos_coincidentes en la colección predictions_history
+      let productosCoincidentes = [];
+      try {
+        const historialPrediccion = await db.collection('predictions_history')
+          .findOne({ 
+            timestamp: lastPrediction[0].timestamp,
+            branch: branchName
+          });
+          
+        if (historialPrediccion && historialPrediccion.productos_coincidentes) {
+          productosCoincidentes = historialPrediccion.productos_coincidentes;
+          console.log(`[API Sucursal] Encontrados ${productosCoincidentes.length} productos coincidentes en el historial`);
+        }
+      } catch (error) {
+        console.error('[API Sucursal] Error al buscar productos coincidentes:', error);
+      }
+      
       return res.status(200).json({
         success: true,
         branch: branchName,
         prediction: lastPrediction[0],
         recommendation: recommendations.length > 0 ? recommendations[0] : null,
+        productos_coincidentes: productosCoincidentes,
         lastUpdate: lastPrediction[0].timestamp,
         isWeeklyPrediction: false,
         message: "Se están mostrando las predicciones diarias"

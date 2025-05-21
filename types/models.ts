@@ -9,6 +9,7 @@ export interface Prediction {
   ordenado?: boolean;
   razon_no_ordenado?: NoOrdenadoRazon;
   comentario_no_ordenado?: string;
+  articulo_id?: string;
 }
 
 export type NoOrdenadoRazon = "hay_en_tienda" | "no_hay_en_cedis" | "otro";

@@ -13,7 +13,7 @@ import StatusIndicator from '../../components/StatusIndicator';
 import { getActivityTracker } from '../../utils/activityTracker';
 
 // Add imports for export functionality
-import { utils as xlsxUtils, write } from 'xlsx';
+import { utils as xlsxUtils, write, writeFile } from 'xlsx';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -102,6 +102,7 @@ const SucursalPage: React.FC = () => {
   const [productosEnTienda, setProductosEnTienda] = useState<Record<string, boolean>>({});
   const [mostrarFormularioTienda, setMostrarFormularioTienda] = useState(false);
   const [mostrarExportarCSV, setMostrarExportarCSV] = useState(false);
+  const [inventarioTiendaExpiracion, setInventarioTiendaExpiracion] = useState<Date | null>(null);
 
   // Function to toggle product expansion
   const toggleProductExpansion = (productName: string) => {
@@ -299,7 +300,7 @@ const SucursalPage: React.FC = () => {
                                [];
         
         const predictions = data.prediction.predictions || [];
-        
+          
         // Primero, verificar si el backend ya proporcionó productos coincidentes
         let recommendedProducts = [];
         if (data.productos_coincidentes && Array.isArray(data.productos_coincidentes) && data.productos_coincidentes.length > 0) {
@@ -722,70 +723,57 @@ const SucursalPage: React.FC = () => {
     }
   };
 
-  // Function to export data to Excel
-  const exportToExcel = () => {
+  // Función para exportar a Excel con formato personalizado
+  const exportarProductosAExcel = () => {
     if (!predictionData?.commonProducts?.length) {
       alert('No hay datos para exportar');
       return;
     }
 
-    // Create worksheet data
-    const worksheetData = predictionData.commonProducts.map((product, index) => {
-      const uniCompraProduct = findUniCompraProduct(product.nombre);
-      const inventoryItem = inventory[product.nombre];
-      const boxCount = uniCompraProduct 
-        ? calculatePackQuantity(product.cantidadSugerida || 0, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA) 
-        : 'N/A';
-      const cedisInventory = inventoryItem 
-        ? inventoryItem.existencia > 0 
-          ? uniCompraProduct 
-            ? `${calculatePackQuantity(inventoryItem.existencia, uniCompraProduct.CONTENIDO_UNIDAD_COMPRA)} cajas en CEDIS` 
-            : `${inventoryItem.existencia} pz en CEDIS`
-          : 'No disponible en CEDIS' 
-        : 'Sin datos CEDIS';
-      
-      return {
-        'No': index + 1,
-        'Producto': product.nombre,
-        'Clave Producto': uniCompraProduct?.CLAVE_ARTICULO || 'N/A',
-        'Cajas Recomendadas': boxCount,
-        'Piezas Recomendadas': product.cantidadSugerida,
-        'Disponibilidad CEDIS': cedisInventory,
-        'Tipo Recomendación': product.tipo_recomendacion || 'N/A',
-        'Frecuencia Otras Sucursales': product.frecuencia_otras || 0,
-        'Número de Sucursales': product.num_sucursales || 0,
-        'Estado': product.ordenado === true ? 'Ordenado' : 
-                 product.ordenado === false ? 'No ordenado' : 'Sin decisión',
-        'Razón (si no ordenado)': product.ordenado === false && product.razon_no_ordenado 
-          ? product.razon_no_ordenado === 'hay_en_tienda' 
-            ? 'Hay producto en tienda' 
-            : product.razon_no_ordenado === 'no_hay_en_cedis' 
-              ? 'No hay producto en CEDIS' 
-              : product.comentario_no_ordenado || product.razon_no_ordenado
-          : ''
-      };
-    });
+    // Filtrar productos que no están en tienda
+    const productosNoEnTienda = predictionData.commonProducts.filter(p => 
+      !productosEnTienda[p.nombre]
+    );
 
-    // Create worksheet and workbook
-    const worksheet = xlsxUtils.json_to_sheet(worksheetData);
+    // Construir los datos para el Excel
+    const data = productosNoEnTienda.map(p => {
+      const uniCompraProduct = findUniCompraProduct(p.nombre);
+      if (uniCompraProduct && uniCompraProduct.CLAVE_ARTICULO) {
+        const cajasRecomendadas = calculatePackQuantity(
+          p.cantidadSugerida || 0,
+          uniCompraProduct.CONTENIDO_UNIDAD_COMPRA
+        );
+        return {
+          'CLAVE': uniCompraProduct.CLAVE_ARTICULO,
+          'PRODUCTO': '',
+          'CANTIDAD': cajasRecomendadas
+        };
+      }
+      return null;
+    }).filter(Boolean);
+
+    // Crear hoja y libro de Excel
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['CLAVE', 'PRODUCTO', 'CANTIDAD'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 
-    // Generate Excel file
+    // Nombre del archivo: solo el nombre de la sucursal y la fecha
+    // Eliminar la palabra "sucursal" y limpiar espacios
+    let nombreSucursal = branchName.toLowerCase().replace(/^sucursal\s+/i, '').trim();
+    // Reemplazar espacios por guiones bajos para el nombre del archivo
+    nombreSucursal = nombreSucursal.replace(/\s+/g, '_');
+    const fileName = `${nombreSucursal}_${predictionData.date}.xlsx`;
+
+    // Descargar el archivo
     const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'array' });
     const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    
-    // Create download link
-    const fileName = `Productos_${branchName.replace(/\s+/g, '_')}_${predictionData.date}.xlsx`;
     const url = URL.createObjectURL(dataBlob);
     const link = document.createElement('a');
     link.href = url;
     link.download = fileName;
     link.click();
-    
-    // Clean up
     URL.revokeObjectURL(url);
-    setShowExportMenu(false);
+    setMostrarExportarCSV(false);
   };
 
   // Function to export data to PDF
@@ -912,20 +900,35 @@ const SucursalPage: React.FC = () => {
       const response = await fetch(`/api/store-inventory?branch=${encodeURIComponent(id as string)}`);
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.inventory) {
-          setProductosEnTienda(data.inventory);
+        if (data.success) {
+          // Si no está expirado, cargar los productos
+          setProductosEnTienda(data.inventory || {});
+          
+          // Guardar la fecha de expiración
+          if (data.expiration) {
+            setInventarioTiendaExpiracion(new Date(data.expiration));
+          } else {
+            setInventarioTiendaExpiracion(null);
+          }
           
           // Si ya tenemos datos de predicción, actualizar la propiedad enTienda
           if (predictionData) {
             const productosActualizados = predictionData.commonProducts.map(p => ({
               ...p,
-              enTienda: !!data.inventory[p.nombre]
+              enTienda: !!(data.inventory && data.inventory[p.nombre])
             }));
             
             setPredictionData({
               ...predictionData,
               commonProducts: productosActualizados
             });
+          }
+          
+          // Log si los datos están expirados o no
+          if (data.expired) {
+            console.log('Los datos de inventario de tienda han expirado, se han reiniciado');
+          } else if (data.expiration) {
+            console.log(`Los datos de inventario de tienda expiran el ${new Date(data.expiration).toLocaleString()}`);
           }
         }
       }
@@ -975,6 +978,57 @@ const SucursalPage: React.FC = () => {
     setMostrarExportarCSV(false);
   };
 
+  // Función para exportar a Excel desde el modal de inventario de tienda
+  const exportarInventarioTiendaAExcel = () => {
+    if (!predictionData?.commonProducts?.length) {
+      alert('No hay datos para exportar');
+      return;
+    }
+
+    // Filtrar productos que no están en tienda
+    const productosNoEnTienda = predictionData.commonProducts.filter(p => 
+      !productosEnTienda[p.nombre]
+    );
+
+    // Construir los datos para el Excel
+    const data = productosNoEnTienda.map(p => {
+      const uniCompraProduct = findUniCompraProduct(p.nombre);
+      if (uniCompraProduct && uniCompraProduct.CLAVE_ARTICULO) {
+        const cajasRecomendadas = calculatePackQuantity(
+          p.cantidadSugerida || 0,
+          uniCompraProduct.CONTENIDO_UNIDAD_COMPRA
+        );
+        return {
+          'CLAVE': uniCompraProduct.CLAVE_ARTICULO,
+          'PRODUCTO': p.nombre,
+          'CANTIDAD': cajasRecomendadas
+        };
+      }
+      return null;
+    }).filter(Boolean);
+
+    // Crear hoja y libro de Excel
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['CLAVE', 'PRODUCTO', 'CANTIDAD'] });
+    const workbook = xlsxUtils.book_new();
+    xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
+
+    // Nombre del archivo: solo el nombre de la sucursal y la fecha
+    let nombreSucursal = branchName.toLowerCase().replace(/^sucursal\s+/i, '').trim();
+    nombreSucursal = nombreSucursal.replace(/\s+/g, '_');
+    const fileName = `${nombreSucursal}_${predictionData.date}.xlsx`;
+
+    // Descargar el archivo
+    const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'array' });
+    const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    setMostrarExportarCSV(false);
+  };
+
   return (
     <div>
       <header className="bg-white dark:bg-gray-800 shadow-sm">
@@ -1017,7 +1071,7 @@ const SucursalPage: React.FC = () => {
                       <ul className="py-1">
                         <li>
                           <button
-                            onClick={exportToExcel}
+                            onClick={exportarProductosAExcel}
                             className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                           >
                             Exportar a Excel
@@ -1245,9 +1299,16 @@ const SucursalPage: React.FC = () => {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex justify-center items-start pt-20">
           <div className="relative mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="flex justify-between items-center border-b pb-4 mb-4 dark:border-gray-700">
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Inventario en Tienda
-              </h3>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Inventario en Tienda
+                </h3>
+                {inventarioTiendaExpiracion && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    La información guardada se reiniciará automáticamente el {inventarioTiendaExpiracion.toLocaleDateString()} a las 9:00 AM
+                  </p>
+                )}
+              </div>
               <button 
                 onClick={() => setMostrarFormularioTienda(false)}
                 className="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100"
@@ -1262,6 +1323,7 @@ const SucursalPage: React.FC = () => {
               {/* Instrucciones */}
               <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-md text-sm text-blue-800 dark:text-blue-200">
                 <p>Marque los productos que ya están disponibles en la tienda. Estos productos dejarán de mostrarse en la lista principal.</p>
+                <p className="mt-2">Esta información se guardará hasta el próximo lunes a las 9 AM, cuando se reiniciará automáticamente.</p>
               </div>
               
               {/* Lista de productos */}
@@ -1316,14 +1378,11 @@ const SucursalPage: React.FC = () => {
                 Cerrar
               </button>
               <button
-                onClick={() => {
-                  setMostrarFormularioTienda(false);
-                  setMostrarExportarCSV(true);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                onClick={exportarInventarioTiendaAExcel}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                 disabled={!predictionData?.commonProducts?.some(p => !productosEnTienda[p.nombre])}
               >
-                Exportar Productos No Disponibles
+                Exportar Excel
               </button>
             </div>
           </div>

@@ -753,7 +753,7 @@ const SucursalPage: React.FC = () => {
     }).filter(Boolean);
 
     // Crear hoja y libro de Excel
-    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Articulo', 'Unidad'] });
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['CLAVE', 'PRODUCTO', 'CANTIDAD'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 
@@ -999,16 +999,16 @@ const SucursalPage: React.FC = () => {
           uniCompraProduct.CONTENIDO_UNIDAD_COMPRA
         );
         return {
-          'CLAVE': uniCompraProduct.CLAVE_ARTICULO,
-          'PRODUCTO': p.nombre,
-          'CANTIDAD': cajasRecomendadas
+          'Clave': uniCompraProduct.CLAVE_ARTICULO,
+          'Articulo': p.nombre,
+          'Unidad': cajasRecomendadas
         };
       }
       return null;
     }).filter(Boolean);
 
     // Crear hoja y libro de Excel
-    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['CLAVE', 'PRODUCTO', 'CANTIDAD'] });
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Articulo', 'Unidad'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 

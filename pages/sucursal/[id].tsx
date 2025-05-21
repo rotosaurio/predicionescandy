@@ -744,9 +744,9 @@ const SucursalPage: React.FC = () => {
           uniCompraProduct.CONTENIDO_UNIDAD_COMPRA
         );
         return {
-          'CLAVE': uniCompraProduct.CLAVE_ARTICULO,
-          'PRODUCTO': "",
-          'CANTIDAD': cajasRecomendadas
+          'Clave': uniCompraProduct.CLAVE_ARTICULO,
+          'Articulo': null,
+          'Unidad': cajasRecomendadas
         };
       }
       return null;
@@ -1000,7 +1000,7 @@ const SucursalPage: React.FC = () => {
         );
         return {
           'Clave': uniCompraProduct.CLAVE_ARTICULO,
-          'Articulo': "",
+          'Articulo': null,
           'Unidad': cajasRecomendadas
         };
       }

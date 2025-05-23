@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { Prediction, NoOrdenadoRazon, FeedbackProduct } from '../../types/models';
 import { isUserLoggedIn, getCurrentUser } from '../../utils/auth';
 import OrderFeedbackModal from '../../components/OrderFeedbackModal';
-import { FiInfo, FiCheck, FiX, FiDownload, FiClipboard, FiShoppingBag } from 'react-icons/fi';
+import { FiInfo, FiCheck, FiX, FiDownload, FiClipboard, FiShoppingBag, FiChevronLeft, FiChevronRight, FiCalendar } from 'react-icons/fi';
 import { getDisplayBranchName } from '../../utils/branchMapping';
 import { useAppStore } from '../../utils/store';
 import StatusIndicator from '../../components/StatusIndicator';
@@ -35,7 +35,7 @@ interface UniCompraProduct {
 }
 
 interface CommonProduct {
-  producto: string; // Add this line
+  producto: string;
   nombre: string;
   cantidadPredicha: number;
   cantidadSugerida: number;
@@ -68,8 +68,44 @@ interface CommonProduct {
   comentario_no_ordenado?: string;
   // Nueva propiedad para marcar productos en tienda
   enTienda?: boolean;
+  // Campos para predicciones combinadas
+  sourceDay?: string;
+  sourceDayIndex?: number;
 }
 
+// Interface for multi-day prediction info
+interface MultiDayInfo {
+  isMultiDayPrediction: boolean;
+  currentIndex: number;
+  totalDays: number;
+  availableDates: Array<{
+    date: string;
+    index: number;
+  }>;
+}
+
+// Interface for combined multi-day prediction info
+interface CombinedDaysInfo {
+  totalDays: number;
+  dateRange: {
+    start: string;
+    end: string;
+  };
+  sourcePredictions: Array<{
+    date: string;
+    index: number;
+    productsCount: number;
+  }>;
+}
+
+// Información de fechas fuente para una predicción combinada
+interface SourceDateInfo {
+  date: string;
+  formattedDate: string;
+  index: number;
+}
+
+// Expand PredictionData interface to include multi-day information
 interface PredictionData {
   timestamp: string;
   branch: string;
@@ -77,6 +113,15 @@ interface PredictionData {
   predictions: Prediction[];
   recommendations: any[];
   commonProducts: CommonProduct[];
+  multiDayInfo?: MultiDayInfo;
+  isMultiDayCombinedPrediction?: boolean;
+  combinedDaysInfo?: CombinedDaysInfo;
+  dateRange?: {
+    start: string;
+    end: string;
+  };
+  combinedDaysCount?: number;
+  sourceDates?: SourceDateInfo[];
 }
 
 const SucursalPage: React.FC = () => {
@@ -103,6 +148,9 @@ const SucursalPage: React.FC = () => {
   const [mostrarFormularioTienda, setMostrarFormularioTienda] = useState(false);
   const [mostrarExportarCSV, setMostrarExportarCSV] = useState(false);
   const [inventarioTiendaExpiracion, setInventarioTiendaExpiracion] = useState<Date | null>(null);
+  
+  // Nuevo estado para fecha seleccionada en predicciones multi-día
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   // Function to toggle product expansion
   const toggleProductExpansion = (productName: string) => {
@@ -256,6 +304,12 @@ const SucursalPage: React.FC = () => {
       activityTracker.startTracking();
       activityTracker.recordPageView(`Branch: ${id}`);
     }
+    
+    // Detectar si hay una fecha seleccionada en la URL
+    const dateFromQuery = router.query.date as string;
+    if (dateFromQuery && dateFromQuery !== selectedDate) {
+      setSelectedDate(dateFromQuery);
+    }
 
     const fetchData = async () => {
       try {
@@ -276,8 +330,11 @@ const SucursalPage: React.FC = () => {
           setSystemStatus(isOnline ? "online" : "offline");
         }
         
-        console.log(`Fetching data for branch: ${decodedId}`);
-        const response = await fetch(`/api/sucursal-predictions?id=${encodeURIComponent(decodedId)}`);
+        console.log(`Fetching data for branch: ${decodedId}${selectedDate ? `, date: ${selectedDate}` : ''}`);
+        
+        // Incluir fecha en la consulta si se ha seleccionado una
+        const dateParam = selectedDate ? `&date=${encodeURIComponent(selectedDate)}` : '';
+        const response = await fetch(`/api/sucursal-predictions?id=${encodeURIComponent(decodedId)}${dateParam}`);
         
         if (!response.ok) {
           throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -758,11 +815,9 @@ const SucursalPage: React.FC = () => {
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 
     // Nombre del archivo: solo el nombre de la sucursal y la fecha
-    // Eliminar la palabra "sucursal" y limpiar espacios
     let nombreSucursal = branchName.toLowerCase().replace(/^sucursal\s+/i, '').trim();
-    // Reemplazar espacios por guiones bajos para el nombre del archivo
     nombreSucursal = nombreSucursal.replace(/\s+/g, '_');
-    const fileName = `${nombreSucursal}_${predictionData.date}.xlsx`;
+    const fileName = `${nombreSucursal}_${formatDateForDisplay(predictionData.date).replace(/\//g, '-')}.xlsx`;
 
     // Descargar el archivo
     const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'array' });
@@ -845,7 +900,7 @@ const SucursalPage: React.FC = () => {
     });
     
     // Save PDF
-    const fileName = `Productos_${branchName.replace(/\s+/g, '_')}_${predictionData.date}.pdf`;
+    const fileName = `Productos_${branchName.replace(/\s+/g, '_')}_${formatDateForDisplay(predictionData.date).replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
     setShowExportMenu(false);
   };
@@ -970,7 +1025,7 @@ const SucursalPage: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Productos_${branchName.replace(/\s+/g, '_')}_${predictionData.date}.csv`);
+    link.setAttribute('download', `Productos_${branchName.replace(/\s+/g, '_')}_${formatDateForDisplay(predictionData.date).replace(/\//g, '-')}.csv`);
     link.click();
     
     // Limpiar
@@ -1015,7 +1070,7 @@ const SucursalPage: React.FC = () => {
     // Nombre del archivo: solo el nombre de la sucursal y la fecha
     let nombreSucursal = branchName.toLowerCase().replace(/^sucursal\s+/i, '').trim();
     nombreSucursal = nombreSucursal.replace(/\s+/g, '_');
-    const fileName = `${nombreSucursal}_${predictionData.date}.xlsx`;
+    const fileName = `${nombreSucursal}_${formatDateForDisplay(predictionData.date).replace(/\//g, '-')}.xlsx`;
 
     // Descargar el archivo
     const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'array' });
@@ -1027,6 +1082,39 @@ const SucursalPage: React.FC = () => {
     link.click();
     URL.revokeObjectURL(url);
     setMostrarExportarCSV(false);
+  };
+
+  // Helper function to format date consistently throughout the app
+  const formatDateForDisplay = (dateString: string, includeTime: boolean = false) => {
+    try {
+      // First normalize the date string to YYYY-MM-DD if it's not already
+      let normalizedDate = dateString;
+      
+      // Check if the date is in DD/MM/YYYY format
+      if (dateString.includes('/')) {
+        const parts = dateString.split('/');
+        if (parts.length === 3) {
+          normalizedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+      
+      // Create Date object and format for display
+      const date = new Date(normalizedDate);
+      return includeTime ? format(date, 'dd/MM/yyyy HH:mm') : format(date, 'dd/MM/yyyy');
+    } catch (e) {
+      console.error('Error formatting date:', e);
+      return dateString; // Return original if there's an error
+    }
+  };
+
+  // Función para navegar a una fecha específica de predicción
+  const navigateToDate = (date: string) => {
+    setLoading(true);
+    setSelectedDate(date);
+    
+    // Actualizar la URL para reflejar la fecha seleccionada
+    const query = { ...router.query, date };
+    router.push({ pathname: router.pathname, query }, undefined, { shallow: true });
   };
 
   return (
@@ -1048,9 +1136,121 @@ const SucursalPage: React.FC = () => {
                    {branchName}
                 </h1>
                 {predictionData && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Última actualización: {format(new Date(predictionData.timestamp), 'dd/MM/yyyy HH:mm')}
-                  </p>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-base font-semibold">
+                      <span className="font-medium">Última actualización:</span> {formatDateForDisplay(predictionData.timestamp, true)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Fecha de predicción:</span> {formatDateForDisplay(predictionData.date)}
+                    </p>
+                    
+                    {/* Información para predicción combinada multi-día que viene directamente de la base de datos */}
+                    {predictionData.isMultiDayCombinedPrediction && predictionData.dateRange && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="font-medium">Información:</span>
+                        <div className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-medium">
+                          Predicción combinada para {predictionData.combinedDaysCount || predictionData.sourceDates?.length || 3} días
+                          ({formatDateForDisplay(predictionData.dateRange.start)} - {formatDateForDisplay(predictionData.dateRange.end)})
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Información para predicción combinada multi-día generada en frontend */}
+                    {predictionData.isMultiDayCombinedPrediction && predictionData.combinedDaysInfo && !predictionData.dateRange && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="font-medium">Información:</span>
+                        <div className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-medium">
+                          Predicción combinada para {predictionData.combinedDaysInfo.totalDays} días
+                          ({formatDateForDisplay(predictionData.combinedDaysInfo.dateRange.start)} - {formatDateForDisplay(predictionData.combinedDaysInfo.dateRange.end)})
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Navegador de fechas para predicciones multi-día (solo si no es combinada) */}
+                    {predictionData.multiDayInfo && predictionData.multiDayInfo.isMultiDayPrediction && !predictionData.isMultiDayCombinedPrediction && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="font-medium">Navegación:</span>
+                        
+                        <div className="flex items-center gap-1">
+                          <button 
+                            onClick={() => {
+                              const prevIndex = predictionData.multiDayInfo!.currentIndex - 1;
+                              if (prevIndex >= 0) {
+                                const prevDate = predictionData.multiDayInfo!.availableDates.find(d => d.index === prevIndex)?.date;
+                                if (prevDate) navigateToDate(prevDate);
+                              }
+                            }}
+                            disabled={predictionData.multiDayInfo.currentIndex <= 0}
+                            className={`p-1 rounded ${
+                              predictionData.multiDayInfo.currentIndex <= 0 
+                                ? 'text-gray-400 cursor-not-allowed' 
+                                : 'text-indigo-600 hover:bg-indigo-50'
+                            }`}
+                            title="Día anterior"
+                          >
+                            <FiChevronLeft />
+                          </button>
+                          
+                          <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium">
+                            Día {predictionData.multiDayInfo.currentIndex + 1} de {predictionData.multiDayInfo.totalDays}
+                          </span>
+                          
+                          <button 
+                            onClick={() => {
+                              const nextIndex = predictionData.multiDayInfo!.currentIndex + 1;
+                              if (nextIndex < predictionData.multiDayInfo!.totalDays) {
+                                const nextDate = predictionData.multiDayInfo!.availableDates.find(d => d.index === nextIndex)?.date;
+                                if (nextDate) navigateToDate(nextDate);
+                              }
+                            }}
+                            disabled={predictionData.multiDayInfo.currentIndex >= predictionData.multiDayInfo.totalDays - 1}
+                            className={`p-1 rounded ${
+                              predictionData.multiDayInfo.currentIndex >= predictionData.multiDayInfo.totalDays - 1
+                                ? 'text-gray-400 cursor-not-allowed' 
+                                : 'text-indigo-600 hover:bg-indigo-50'
+                            }`}
+                            title="Día siguiente"
+                          >
+                            <FiChevronRight />
+                          </button>
+                          
+                          {/* Dropdown para fechas disponibles */}
+                          <div className="relative ml-2">
+                            <button 
+                              onClick={() => document.getElementById('date-selector')?.classList.toggle('hidden')}
+                              className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"
+                              title="Seleccionar fecha"
+                            >
+                              <FiCalendar />
+                            </button>
+                            <div id="date-selector" className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 shadow-lg rounded-md border border-gray-200 dark:border-gray-700 z-10 hidden">
+                              <div className="py-1">
+                                {predictionData.multiDayInfo.availableDates
+                                  .sort((a, b) => a.index - b.index)
+                                  .map((date, idx) => (
+                                    <button
+                                      key={idx}
+                                      onClick={() => {
+                                        navigateToDate(date.date);
+                                        document.getElementById('date-selector')?.classList.add('hidden');
+                                      }}
+                                      className={`block w-full text-left px-4 py-2 text-sm ${
+                                        date.index === predictionData.multiDayInfo!.currentIndex
+                                          ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200'
+                                          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                      }`}
+                                    >
+                                      {formatDateForDisplay(date.date)} {date.index === predictionData.multiDayInfo!.currentIndex ? '(Actual)' : ''}
+                                    </button>
+                                  ))
+                                }
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -1157,8 +1357,23 @@ const SucursalPage: React.FC = () => {
                       Productos Recomendados
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {predictionData.commonProducts?.length || 0} productos recomendados para esta sucursal • Fecha: {predictionData.date}
+                      {predictionData.commonProducts?.length || 0} productos recomendados para esta sucursal • 
+                      <span className="font-semibold"> Generado el: {formatDateForDisplay(predictionData.timestamp, true)}</span>
+                      {predictionData.isMultiDayCombinedPrediction && predictionData.dateRange
+                        ? ` • Predicción combinada ${predictionData.combinedDaysCount || predictionData.sourceDates?.length || 3} días (${formatDateForDisplay(predictionData.dateRange.start)} - ${formatDateForDisplay(predictionData.dateRange.end)})`
+                        : predictionData.isMultiDayCombinedPrediction && predictionData.combinedDaysInfo
+                          ? ` • Predicción combinada ${predictionData.combinedDaysInfo.totalDays} días (${formatDateForDisplay(predictionData.combinedDaysInfo.dateRange.start)} - ${formatDateForDisplay(predictionData.combinedDaysInfo.dateRange.end)})`
+                          : ` • Para fecha: ${formatDateForDisplay(predictionData.date)}`}
                     </p>
+                    {predictionData.isMultiDayCombinedPrediction && (
+                      <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-blue-800 dark:text-blue-200">
+                        <p>
+                          <span className="font-medium">Nota: </span>
+                          Esta lista muestra todos los productos recomendados para los próximos {predictionData.combinedDaysCount || predictionData.combinedDaysInfo?.totalDays || predictionData.sourceDates?.length || 3} días. 
+                          Los duplicados han sido eliminados automáticamente, mostrando solo una vez cada producto con su predicción más confiable.
+                        </p>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Lista simplificada de productos */}
@@ -1194,6 +1409,15 @@ const SucursalPage: React.FC = () => {
                                   </div>
                                 )}
                                 
+                                {/* Mostrar fecha de origen en predicciones combinadas del frontend */}
+                                {predictionData.isMultiDayCombinedPrediction && product.sourceDay && (
+                                  <div className="mt-1">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                                      <FiCalendar className="mr-1" /> Día {(product.sourceDayIndex !== undefined ? product.sourceDayIndex + 1 : '?')}: {formatDateForDisplay(product.sourceDay)}
+                                    </span>
+                                  </div>
+                                )}
+                                
                                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 flex items-center">
                                   <span>
                                      Cajas Recomendadas: {uniCompraProduct ? 
@@ -1201,6 +1425,9 @@ const SucursalPage: React.FC = () => {
                                           product.cantidadSugerida || 0, 
                                           uniCompraProduct.CONTENIDO_UNIDAD_COMPRA
                                         ) : 'N/A'}
+                                  </span>
+                                  <span className="ml-3 text-xs text-gray-400 dark:text-gray-500">
+                                    Generado: {formatDateForDisplay(predictionData.timestamp, true)}
                                   </span>
                                 </p>
                               </div>

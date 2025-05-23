@@ -226,6 +226,79 @@ function needsPrediction(lastPredictionDate: Date | null): boolean {
   return true;
 }
 
+// Función para verificar si hoy es un día permitido para generar predicciones para una sucursal específica
+function isDayAllowedForBranch(branchName: string, forceDay: boolean = false): boolean {
+  // Si se fuerza la generación, permitir cualquier día
+  if (forceDay) {
+    console.log(`[AUTO] Forzando generación de predicciones para ${branchName} sin importar el día.`);
+    return true;
+  }
+  
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 = Domingo, 1 = Lunes, 2 = Martes, etc.
+  
+  // Normalizar el nombre de la sucursal para comparación
+  const normalizedBranch = branchName.trim().toLowerCase();
+  
+  // Grupo 1: Lunes (1), Miércoles (3) y Viernes (5)
+  if (normalizedBranch.includes('nueva españa') || normalizedBranch.includes('nueva espana') || 
+      (normalizedBranch.includes('enedina') && normalizedBranch.includes('nueva'))) {
+    const allowedDays = [1, 3, 5]; // Lunes, Miércoles, Viernes
+    const isAllowed = allowedDays.includes(dayOfWeek);
+    
+    if (!isAllowed) {
+      console.log(`[AUTO] La sucursal ${branchName} solo puede generar predicciones los lunes, miércoles y viernes. Hoy es día ${dayOfWeek}.`);
+    }
+    
+    return isAllowed;
+  }
+  
+  // Grupo 2: Martes (2), Jueves (4) y Sábados (6)
+  // Excluimos KRAMFORS - WASHINGTON de las restricciones
+  if ((normalizedBranch.includes('san pedro') || 
+       (normalizedBranch.includes('kramfors') && !normalizedBranch.includes('washington')) || 
+       (normalizedBranch.includes('enedina') && normalizedBranch.includes('industria')))) {
+    const allowedDays = [2, 4, 6]; // Martes, Jueves, Sábado
+    const isAllowed = allowedDays.includes(dayOfWeek);
+    
+    if (!isAllowed) {
+      console.log(`[AUTO] La sucursal ${branchName} solo puede generar predicciones los martes, jueves y sábados. Hoy es día ${dayOfWeek}.`);
+    }
+    
+    return isAllowed;
+  }
+  
+  // Para KRAMFORS - WASHINGTON y el resto de sucursales, permitir cualquier día
+  return true;
+}
+
+// Función para obtener el número de días de predicción según la sucursal
+function getNumDaysForBranch(branchName: string, defaultDays: number): number {
+  // Normalizar el nombre de la sucursal para comparación
+  const normalizedBranch = branchName.trim().toLowerCase();
+  
+  // Para KRAMFORS - WASHINGTON, generar predicción de 3 días
+  if (normalizedBranch.includes('kramfors') && normalizedBranch.includes('washington')) {
+    console.log(`[AUTO] La sucursal ${branchName} generará predicciones para 3 días.`);
+    return 3;
+  }
+  
+  // Sucursales con predicciones de 6 días
+  // Grupo 1: ENEDINA - NUEVA ESPAÑA
+  // Grupo 2: KRAMFORS - SAN PEDRO y ENEDINA - INDUSTRIAS
+  if (normalizedBranch.includes('nueva españa') || normalizedBranch.includes('nueva espana') || 
+      (normalizedBranch.includes('san pedro') || 
+       (normalizedBranch.includes('kramfors') && !normalizedBranch.includes('washington'))) ||
+      (normalizedBranch.includes('enedina') && 
+       (normalizedBranch.includes('nueva') || normalizedBranch.includes('industria')))) {
+    console.log(`[AUTO] La sucursal ${branchName} generará predicciones para 6 días.`);
+    return 6;
+  }
+  
+  // Para el resto de sucursales, usar el valor por defecto (3 días)
+  return defaultDays;
+}
+
 // Función para asegurar que la colección existe
 async function ensureCollectionExists(db: any, collectionName: string): Promise<void> {
   try {
@@ -290,6 +363,37 @@ async function hasInventoryForDate(db: any, date: string): Promise<boolean> {
   }
   
   return false;
+}
+
+// Función para generar predicciones para los próximos N días
+async function generatePredictionsForDays(sucursal: string, startDate: Date, numDays: number = 3): Promise<{
+  fecha: string;
+  dateStr: string;
+  resultado: PredictionResult;
+}[]> {
+  const results = [];
+
+  for (let i = 0; i < numDays; i++) {
+    const targetDate = addDays(startDate, i);
+    const formattedDate = format(targetDate, 'dd/MM/yyyy');
+    const dateStr = format(targetDate, 'yyyy-MM-dd');
+    
+    console.log(`[AUTO] Generando predicción para sucursal: ${sucursal}, fecha: ${formattedDate} (día ${i+1} de ${numDays})`);
+    
+    try {
+      const resultado = await generatePredictionForBranchAndDate(sucursal, formattedDate);
+      results.push({
+        fecha: formattedDate,
+        dateStr,
+        resultado
+      });
+    } catch (error) {
+      console.error(`[AUTO] Error generando predicción para ${sucursal} en fecha ${formattedDate}:`, error);
+      throw error;
+    }
+  }
+  
+  return results;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -408,7 +512,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       num_muestras: parseInt(req.body?.num_muestras || req.query?.num_muestras || "15"),
       incluir_recomendaciones: req.body?.incluir_recomendaciones !== false && req.query?.incluir_recomendaciones !== "false",
       incluir_motivos: req.body?.incluir_motivos !== false && req.query?.incluir_motivos !== "false",
-      force: req.body?.force === true || req.query?.force === "true"
+      force: req.body?.force === true || req.query?.force === "true",
+      force_day: req.body?.force_day === true || req.query?.force_day === "true" // Forzar generación sin importar el día
     };
     
     console.log(`[AUTO] Configuración recibida:`, config);
@@ -417,6 +522,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     for (const sucursal of sucursales) {
       try {
         console.log(`[AUTO] Procesando sucursal: ${sucursal}`);
+        
+        // Verificar si hoy es un día permitido para esta sucursal
+        if (!isDayAllowedForBranch(sucursal, config.force_day)) {
+          console.log(`[AUTO] Hoy no es un día permitido para generar predicciones para ${sucursal}. Omitiendo.`);
+          results.push({
+            sucursal,
+            status: 'skipped',
+            message: 'Día no permitido para generar predicciones'
+          });
+          continue; // Pasar a la siguiente sucursal
+        }
         
         // Nombre seguro para colecciones (sin espacios ni caracteres especiales)
         const safeCollectionName = normalizeBranchName(sucursal);
@@ -443,7 +559,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         
         // Verificar si necesitamos una nueva predicción
         if (needsPrediction(lastPredictionDate) || config.force) {
-          console.log(`[AUTO] Generando nueva predicción semanal para ${sucursal}`);
+          console.log(`[AUTO] Generando predicciones para los próximos 3 días para ${sucursal}`);
           
           // Parámetros para la predicción
           const parametros = {
@@ -456,133 +572,345 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           console.log(`[AUTO] Parámetros de predicción para ${sucursal}:`, parametros);
           
-          // Generar predicciones solo para el día actual
-          const resultado = await generatePredictionForBranchAndDate(sucursal, fechaActual);
+          // Número de días para los que se generarán predicciones
+          const numDays = getNumDaysForBranch(sucursal, 3);
+          
+          // Generar predicciones para múltiples días
+          const predicciones = await generatePredictionsForDays(sucursal, today, numDays);
           
           const timestamp = new Date().toISOString();
-          const dateStr = format(today, 'yyyy-MM-dd');
           
-          // Guardar las predicciones diarias en la colección correspondiente
-          const predictionDocument = {
-            timestamp,
-            branch: sucursal,
-            date: dateStr,
-            predictions: resultado.predicciones,
-            isPartOfWeekly: false
-          };
+          // Combinar todas las predicciones en una sola
+          console.log(`[AUTO] Combinando predicciones de ${predicciones.length} días en una sola`);
           
-          console.log(`[AUTO] Guardando predicciones en ${predictionCollectionName}`);
-          await db.collection(predictionCollectionName).insertOne(predictionDocument);
+          // Crear un mapa para eliminar duplicados por nombre de producto en predicciones
+          const uniquePredictions = new Map();
           
-          // Guardar las recomendaciones en su colección específica
-          const recommendationDocument = {
-            timestamp,
-            branch: sucursal,
-            date: dateStr,
-            recommendations: resultado.recomendaciones,
-            isPartOfWeekly: false
-          };
-          
-          console.log(`[AUTO] Guardando recomendaciones en ${recommendationCollectionName}`);
-          await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
-          
-          // Guardar en el historial general
-          const historyDocument = {
-            timestamp,
-            branch: sucursal,
-            date: dateStr,
-            isWeeklyPrediction: false,
-            predictions: resultado.predicciones,
-            recommendations: resultado.recomendaciones,
-            productos_coincidentes: resultado.productos_coincidentes,
-            resultados: resultado.resultados
-          };
-          
-          console.log('[AUTO] Guardando en historial general (predictions_history)');
-          await db.collection('predictions_history').insertOne(historyDocument);
-          
-          // Guardar también en la colección semanal para mantener compatibilidad
-          console.log('[AUTO] Guardando en colección semanal para compatibilidad');
-          await db.collection('weekly_predictions').insertOne({
-            ...historyDocument,
-            branch: sucursal
+          // Procesar todas las predicciones y combinarlas
+          predicciones.forEach((prediccion, index) => {
+            if (prediccion.resultado.predicciones && Array.isArray(prediccion.resultado.predicciones)) {
+              prediccion.resultado.predicciones.forEach(product => {
+                // Si el producto no existe en el mapa o tiene mayor confianza, lo añadimos/actualizamos
+                if (!uniquePredictions.has(product.nombre.toLowerCase()) || 
+                    product.confianza > uniquePredictions.get(product.nombre.toLowerCase()).confianza) {
+                  uniquePredictions.set(product.nombre.toLowerCase(), {
+                    ...product,
+                    sourceDayIndex: index,
+                    sourceDay: prediccion.fecha
+                  });
+                }
+              });
+            }
           });
           
+          // Convertir el mapa a array
+          const combinedPredictions = Array.from(uniquePredictions.values());
+          console.log(`[AUTO] Combinación de predicciones finalizada: ${combinedPredictions.length} productos únicos`);
+          
+          // Hacer lo mismo para las recomendaciones
+          const uniqueRecommendations = new Map();
+          
+          predicciones.forEach((prediccion, index) => {
+            if (prediccion.resultado.recomendaciones && Array.isArray(prediccion.resultado.recomendaciones)) {
+              prediccion.resultado.recomendaciones.forEach(product => {
+                // Si el producto no existe en el mapa o tiene mayor confianza, lo añadimos/actualizamos
+                if (!uniqueRecommendations.has(product.nombre.toLowerCase()) || 
+                    product.confianza > uniqueRecommendations.get(product.nombre.toLowerCase()).confianza) {
+                  uniqueRecommendations.set(product.nombre.toLowerCase(), {
+                    ...product,
+                    sourceDayIndex: index,
+                    sourceDay: prediccion.fecha
+                  });
+                }
+              });
+            }
+          });
+          
+          // Convertir el mapa a array
+          const combinedRecommendations = Array.from(uniqueRecommendations.values());
+          console.log(`[AUTO] Combinación de recomendaciones finalizada: ${combinedRecommendations.length} productos únicos`);
+          
+          // Hacer lo mismo para productos coincidentes
+          const uniqueCoincidentes = new Map();
+          
+          predicciones.forEach((prediccion, index) => {
+            if (prediccion.resultado.productos_coincidentes && Array.isArray(prediccion.resultado.productos_coincidentes)) {
+              prediccion.resultado.productos_coincidentes.forEach(product => {
+                // Para productos coincidentes simplemente guardamos uno por nombre
+                if (!uniqueCoincidentes.has(product.nombre.toLowerCase())) {
+                  uniqueCoincidentes.set(product.nombre.toLowerCase(), {
+                    ...product,
+                    sourceDayIndex: index,
+                    sourceDay: prediccion.fecha
+                  });
+                }
+              });
+            }
+          });
+          
+          // Convertir el mapa a array
+          const combinedCoincidentes = Array.from(uniqueCoincidentes.values());
+          console.log(`[AUTO] Combinación de productos coincidentes finalizada: ${combinedCoincidentes.length} productos únicos`);
+          
+          // Calcular rango de fechas para la predicción combinada
+          const dateRange = {
+            start: predicciones[0].dateStr,
+            end: predicciones[predicciones.length - 1].dateStr
+          };
+          
+          // En lugar de guardar cada predicción diaria por separado, guardamos una única predicción combinada
+          const combinedPredictionDocument = {
+            timestamp,
+            branch: sucursal,
+            date: predicciones[0].dateStr, // Fecha del primer día como fecha principal
+            predictions: combinedPredictions,
+            isMultiDayPrediction: true,
+            isMultiDayCombinedPrediction: true,
+            combinedDaysCount: predicciones.length,
+            dateRange,
+            sourceDates: predicciones.map(p => ({ 
+              date: p.dateStr,
+              formattedDate: p.fecha,
+              index: predicciones.indexOf(p)
+            }))
+          };
+          
+          console.log(`[AUTO] Guardando predicción combinada en ${predictionCollectionName}`);
+          await db.collection(predictionCollectionName).insertOne(combinedPredictionDocument);
+          
+          // Guardar las recomendaciones combinadas
+          const combinedRecommendationDocument = {
+            timestamp,
+            branch: sucursal,
+            date: predicciones[0].dateStr,
+            recommendations: combinedRecommendations,
+            isMultiDayPrediction: true,
+            isMultiDayCombinedPrediction: true,
+            combinedDaysCount: predicciones.length,
+            dateRange,
+            sourceDates: predicciones.map(p => ({ 
+              date: p.dateStr,
+              formattedDate: p.fecha,
+              index: predicciones.indexOf(p)
+            }))
+          };
+          
+          console.log(`[AUTO] Guardando recomendaciones combinadas en ${recommendationCollectionName}`);
+          await db.collection(recommendationCollectionName).insertOne(combinedRecommendationDocument);
+          
+          // Guardar en el historial general
+          const combinedHistoryDocument = {
+            timestamp,
+            branch: sucursal,
+            date: predicciones[0].dateStr,
+            formattedDate: predicciones[0].fecha,
+            isWeeklyPrediction: false,
+            isMultiDayPrediction: true,
+            isMultiDayCombinedPrediction: true,
+            combinedDaysCount: predicciones.length,
+            multiDayPredictionIndex: 0,
+            totalDays: 1, // Solo hay 1 registro que contiene todos los días
+            predictions: combinedPredictions,
+            recommendations: combinedRecommendations,
+            productos_coincidentes: combinedCoincidentes,
+            dateRange,
+            sourceDates: predicciones.map(p => ({ 
+              date: p.dateStr,
+              formattedDate: p.fecha,
+              index: predicciones.indexOf(p)
+            }))
+          };
+          
+          console.log(`[AUTO] Guardando predicción combinada en historial general (predictions_history)`);
+          await db.collection('predictions_history').insertOne(combinedHistoryDocument);
+          
+          // Resultados para enviar en la respuesta
           results.push({
             sucursal,
             status: 'success',
-            message: 'Predicción diaria generada correctamente',
+            message: `Predicciones para ${predicciones.length} días combinadas y guardadas como una sola`,
             lastUpdate: timestamp,
-            date: dateStr,
-            productos_coincidentes: resultado.productos_coincidentes.length
+            dateRange,
+            days: predicciones.map(p => p.fecha),
+            combinedCount: {
+              predictions: combinedPredictions.length,
+              recommendations: combinedRecommendations.length,
+              coincidentes: combinedCoincidentes.length
+            }
           });
           
-          console.log(`[AUTO] Predicción diaria completa para ${sucursal}`);
+          console.log(`[AUTO] Predicciones múltiples combinadas y guardadas para ${sucursal}`);
         } else {
-          console.log(`[AUTO] Ya existe una predicción reciente para ${sucursal}, pero se generará una nueva`);
+          // Número de días para los que se generarán predicciones
+          const numDays = getNumDaysForBranch(sucursal, 3);
           
-          // Generar predicciones solo para el día actual
-          const resultado = await generatePredictionForBranchAndDate(sucursal, fechaActual);
+          console.log(`[AUTO] Ya existe una predicción reciente para ${sucursal}, pero se generarán nuevas predicciones para ${numDays} días`);
+          
+          // Generar predicciones para múltiples días
+          const predicciones = await generatePredictionsForDays(sucursal, today, numDays);
           
           const timestamp = new Date().toISOString();
-          const dateStr = format(today, 'yyyy-MM-dd');
           
-          // Guardar las predicciones diarias en la colección correspondiente
-          const predictionDocument = {
-            timestamp,
-            branch: sucursal,
-            date: dateStr,
-            predictions: resultado.predicciones,
-            isPartOfWeekly: false
-          };
+          // Combinar todas las predicciones en una sola
+          console.log(`[AUTO] Combinando predicciones de ${predicciones.length} días en una sola`);
           
-          console.log(`[AUTO] Guardando predicciones en ${predictionCollectionName}`);
-          await db.collection(predictionCollectionName).insertOne(predictionDocument);
+          // Crear un mapa para eliminar duplicados por nombre de producto en predicciones
+          const uniquePredictions = new Map();
           
-          // Guardar las recomendaciones en su colección específica
-          const recommendationDocument = {
-            timestamp,
-            branch: sucursal,
-            date: dateStr,
-            recommendations: resultado.recomendaciones,
-            isPartOfWeekly: false
-          };
-          
-          console.log(`[AUTO] Guardando recomendaciones en ${recommendationCollectionName}`);
-          await db.collection(recommendationCollectionName).insertOne(recommendationDocument);
-          
-          // Guardar en el historial general
-          const historyDocument = {
-            timestamp,
-            branch: sucursal,
-            date: dateStr,
-            isWeeklyPrediction: false,
-            predictions: resultado.predicciones,
-            recommendations: resultado.recomendaciones,
-            productos_coincidentes: resultado.productos_coincidentes,
-            resultados: resultado.resultados
-          };
-          
-          console.log('[AUTO] Guardando en historial general (predictions_history)');
-          await db.collection('predictions_history').insertOne(historyDocument);
-          
-          // Guardar también en la colección semanal para mantener compatibilidad
-          console.log('[AUTO] Guardando en colección semanal para compatibilidad');
-          await db.collection('weekly_predictions').insertOne({
-            ...historyDocument,
-            branch: sucursal
+          // Procesar todas las predicciones y combinarlas
+          predicciones.forEach((prediccion, index) => {
+            if (prediccion.resultado.predicciones && Array.isArray(prediccion.resultado.predicciones)) {
+              prediccion.resultado.predicciones.forEach(product => {
+                // Si el producto no existe en el mapa o tiene mayor confianza, lo añadimos/actualizamos
+                if (!uniquePredictions.has(product.nombre.toLowerCase()) || 
+                    product.confianza > uniquePredictions.get(product.nombre.toLowerCase()).confianza) {
+                  uniquePredictions.set(product.nombre.toLowerCase(), {
+                    ...product,
+                    sourceDayIndex: index,
+                    sourceDay: prediccion.fecha
+                  });
+                }
+              });
+            }
           });
           
+          // Convertir el mapa a array
+          const combinedPredictions = Array.from(uniquePredictions.values());
+          console.log(`[AUTO] Combinación de predicciones finalizada: ${combinedPredictions.length} productos únicos`);
+          
+          // Hacer lo mismo para las recomendaciones
+          const uniqueRecommendations = new Map();
+          
+          predicciones.forEach((prediccion, index) => {
+            if (prediccion.resultado.recomendaciones && Array.isArray(prediccion.resultado.recomendaciones)) {
+              prediccion.resultado.recomendaciones.forEach(product => {
+                // Si el producto no existe en el mapa o tiene mayor confianza, lo añadimos/actualizamos
+                if (!uniqueRecommendations.has(product.nombre.toLowerCase()) || 
+                    product.confianza > uniqueRecommendations.get(product.nombre.toLowerCase()).confianza) {
+                  uniqueRecommendations.set(product.nombre.toLowerCase(), {
+                    ...product,
+                    sourceDayIndex: index,
+                    sourceDay: prediccion.fecha
+                  });
+                }
+              });
+            }
+          });
+          
+          // Convertir el mapa a array
+          const combinedRecommendations = Array.from(uniqueRecommendations.values());
+          console.log(`[AUTO] Combinación de recomendaciones finalizada: ${combinedRecommendations.length} productos únicos`);
+          
+          // Hacer lo mismo para productos coincidentes
+          const uniqueCoincidentes = new Map();
+          
+          predicciones.forEach((prediccion, index) => {
+            if (prediccion.resultado.productos_coincidentes && Array.isArray(prediccion.resultado.productos_coincidentes)) {
+              prediccion.resultado.productos_coincidentes.forEach(product => {
+                // Para productos coincidentes simplemente guardamos uno por nombre
+                if (!uniqueCoincidentes.has(product.nombre.toLowerCase())) {
+                  uniqueCoincidentes.set(product.nombre.toLowerCase(), {
+                    ...product,
+                    sourceDayIndex: index,
+                    sourceDay: prediccion.fecha
+                  });
+                }
+              });
+            }
+          });
+          
+          // Convertir el mapa a array
+          const combinedCoincidentes = Array.from(uniqueCoincidentes.values());
+          console.log(`[AUTO] Combinación de productos coincidentes finalizada: ${combinedCoincidentes.length} productos únicos`);
+          
+          // Calcular rango de fechas para la predicción combinada
+          const dateRange = {
+            start: predicciones[0].dateStr,
+            end: predicciones[predicciones.length - 1].dateStr
+          };
+          
+          // En lugar de guardar cada predicción diaria por separado, guardamos una única predicción combinada
+          const combinedPredictionDocument = {
+            timestamp,
+            branch: sucursal,
+            date: predicciones[0].dateStr, // Fecha del primer día como fecha principal
+            predictions: combinedPredictions,
+            isMultiDayPrediction: true,
+            isMultiDayCombinedPrediction: true,
+            combinedDaysCount: predicciones.length,
+            dateRange,
+            sourceDates: predicciones.map(p => ({ 
+              date: p.dateStr,
+              formattedDate: p.fecha,
+              index: predicciones.indexOf(p)
+            }))
+          };
+          
+          console.log(`[AUTO] Guardando predicción combinada en ${predictionCollectionName}`);
+          await db.collection(predictionCollectionName).insertOne(combinedPredictionDocument);
+          
+          // Guardar las recomendaciones combinadas
+          const combinedRecommendationDocument = {
+            timestamp,
+            branch: sucursal,
+            date: predicciones[0].dateStr,
+            recommendations: combinedRecommendations,
+            isMultiDayPrediction: true,
+            isMultiDayCombinedPrediction: true,
+            combinedDaysCount: predicciones.length,
+            dateRange,
+            sourceDates: predicciones.map(p => ({ 
+              date: p.dateStr,
+              formattedDate: p.fecha,
+              index: predicciones.indexOf(p)
+            }))
+          };
+          
+          console.log(`[AUTO] Guardando recomendaciones combinadas en ${recommendationCollectionName}`);
+          await db.collection(recommendationCollectionName).insertOne(combinedRecommendationDocument);
+          
+          // Guardar en el historial general
+          const combinedHistoryDocument = {
+            timestamp,
+            branch: sucursal,
+            date: predicciones[0].dateStr,
+            formattedDate: predicciones[0].fecha,
+            isWeeklyPrediction: false,
+            isMultiDayPrediction: true,
+            isMultiDayCombinedPrediction: true,
+            combinedDaysCount: predicciones.length,
+            multiDayPredictionIndex: 0,
+            totalDays: 1, // Solo hay 1 registro que contiene todos los días
+            predictions: combinedPredictions,
+            recommendations: combinedRecommendations,
+            productos_coincidentes: combinedCoincidentes,
+            dateRange,
+            sourceDates: predicciones.map(p => ({ 
+              date: p.dateStr,
+              formattedDate: p.fecha,
+              index: predicciones.indexOf(p)
+            }))
+          };
+          
+          console.log(`[AUTO] Guardando predicción combinada en historial general (predictions_history)`);
+          await db.collection('predictions_history').insertOne(combinedHistoryDocument);
+          
+          // Resultados para enviar en la respuesta
           results.push({
             sucursal,
             status: 'success',
-            message: 'Nueva predicción diaria generada correctamente',
+            message: `Predicciones para ${predicciones.length} días combinadas y guardadas como una sola`,
             lastUpdate: timestamp,
-            date: dateStr,
-            productos_coincidentes: resultado.productos_coincidentes.length
+            dateRange,
+            days: predicciones.map(p => p.fecha),
+            combinedCount: {
+              predictions: combinedPredictions.length,
+              recommendations: combinedRecommendations.length,
+              coincidentes: combinedCoincidentes.length
+            }
           });
           
-          console.log(`[AUTO] Predicción diaria completa para ${sucursal}`);
+          console.log(`[AUTO] Predicciones múltiples combinadas y guardadas para ${sucursal}`);
         }
       } catch (error) {
         console.error(`[AUTO] Error procesando sucursal ${sucursal}:`, error);

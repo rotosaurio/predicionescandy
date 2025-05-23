@@ -813,19 +813,48 @@ export default function AdminPanel() {
                         className={`p-4 rounded-lg ${
                           result.status === 'success' 
                             ? 'bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/50' 
-                            : 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50'
+                            : result.status === 'skipped'
+                              ? 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50'
+                              : 'bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/50'
                         }`}
                       >
                         <div className="flex justify-between">
                           <h3 className="font-semibold text-gray-900 dark:text-white">{result.sucursal}</h3>
-                          <Link 
-                            href={`/sucursal/${encodeURIComponent(result.sucursal)}`}
-                            className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
-                          >
-                            Ver detalle
-                          </Link>
+                          {result.status === 'success' && (
+                            <Link 
+                              href={`/sucursal/${encodeURIComponent(result.sucursal)}`}
+                              className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+                            >
+                              Ver detalle
+                            </Link>
+                          )}
                         </div>
-                        <p className="text-gray-600 dark:text-gray-400 text-sm">{result.message}</p>
+                        <p className={`text-sm ${
+                          result.status === 'success' 
+                            ? 'text-green-600 dark:text-green-400' 
+                            : result.status === 'skipped'
+                              ? 'text-yellow-600 dark:text-yellow-400'
+                              : 'text-red-600 dark:text-red-400'
+                        }`}>
+                          {result.status === 'success' && (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="inline-block h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                          {result.status === 'skipped' && (
+                            <span title="Esta sucursal solo puede generar predicciones en días específicos">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="inline-block h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            </span>
+                          )}
+                          {result.status !== 'success' && result.status !== 'skipped' && (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="inline-block h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                          )}
+                          {result.message}
+                        </p>
                         {result.lastUpdate && (
                           <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">
                             Última actualización: {format(new Date(result.lastUpdate), "dd/MM/yyyy HH:mm")}

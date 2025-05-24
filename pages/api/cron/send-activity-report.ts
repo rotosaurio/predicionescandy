@@ -67,12 +67,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const destinationEmail = manualEmail || config?.destinationEmail;
     
     // Validar formato de correo
-    if (!isValidEmail(destinationEmail)) {
-      logger.error('Formato de correo electrónico inválido', { email: destinationEmail });
+    if (!destinationEmail || destinationEmail.trim() === '') {
+      logger.error('No se proporcionó ningún correo electrónico');
       return res.status(400).json({
         success: false,
-        message: 'El formato del correo electrónico es inválido'
+        message: 'No se proporcionó ningún correo electrónico'
       });
+    }
+    
+    // Si es un correo manual, validamos directamente
+    if (manualEmail) {
+      if (!isValidEmail(manualEmail)) {
+        logger.error('Formato de correo electrónico inválido', { email: manualEmail });
+        return res.status(400).json({
+          success: false,
+          message: 'El formato del correo electrónico es inválido'
+        });
+      }
+    }
+    // Si es un correo de configuración, pueden ser múltiples
+    else if (config?.destinationEmail) {
+      // Verificar si hay múltiples destinatarios
+      const emails = config.destinationEmail.includes(',') 
+        ? config.destinationEmail.split(',')
+          .map((email: string) => email.trim())
+          .filter((email: string) => email !== '')
+        : [config.destinationEmail.trim()];
+      
+      // Verificar que al menos queda un correo después de filtrar
+      if (emails.length === 0) {
+        logger.error('No se encontró ningún correo electrónico válido en la configuración');
+        return res.status(400).json({
+          success: false,
+          message: 'No se encontró ningún correo electrónico válido en la configuración'
+        });
+      }
+      
+      // Validar el formato de cada correo
+      for (const email of emails) {
+        if (!isValidEmail(email)) {
+          logger.error('Formato de correo electrónico inválido', { email });
+          return res.status(400).json({
+            success: false,
+            message: `El formato del correo electrónico "${email}" es inválido`
+          });
+        }
+      }
     }
     
     logger.info('Ejecutando tarea de envío de reporte a través del endpoint cron', {

@@ -70,9 +70,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       
       // Validar formato de correo - ahora pueden ser múltiples correos separados por comas
-      const emailList = destinationEmail.split(',').map((email: string) => email.trim());
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emailList = destinationEmail.split(',')
+        .map((email: string) => email.trim())
+        .filter((email: string) => email !== '');
       
+      // Verificar que hay al menos un correo después de limpiar
+      if (emailList.length === 0) {
+        logApi('ERROR', 'No se proporcionó ningún correo electrónico válido');
+        return res.status(400).json({
+          success: false,
+          message: 'No se proporcionó ningún correo electrónico válido'
+        });
+      }
+      
+      // Validar cada correo
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       for (const email of emailList) {
         if (!emailRegex.test(email)) {
           logApi('ERROR', 'Formato de correo electrónico inválido', { email });
@@ -82,6 +94,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
         }
       }
+      
+      // Guardar los correos limpios como string separado por comas
+      const cleanDestinationEmail = emailList.join(', ');
       
       // Validar formato de hora
       const timeRegex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
@@ -101,7 +116,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       // Guardar nueva configuración
       const configDoc = {
-        destinationEmail,
+        destinationEmail: cleanDestinationEmail,
         scheduledTime,
         isActive: isActive !== false, // Por defecto activo a menos que se especifique lo contrario
         createdAt: new Date(),
@@ -112,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       if (result.acknowledged) {
         logApi('INFO', 'Nueva configuración de correo guardada', { 
-          email: destinationEmail, 
+          email: cleanDestinationEmail, 
           time: scheduledTime,
           isActive: configDoc.isActive
         });
@@ -125,7 +140,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             
             // Programar nueva tarea
             const taskId = await scheduleActivityReport({
-              destinationEmail,
+              destinationEmail: cleanDestinationEmail,
               scheduledTime,
               isActive: true
             });

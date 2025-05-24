@@ -99,18 +99,18 @@ export default function EmailConfigPage() {
     
     // Validar correo
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(currentEmail)) {
+    if (!emailRegex.test(currentEmail.trim())) {
       setError('Por favor, ingrese un correo electrónico válido');
       return;
     }
     
     // Verificar duplicados
-    if (destinationEmails.includes(currentEmail)) {
+    if (destinationEmails.includes(currentEmail.trim())) {
       setError('Este correo ya está en la lista');
       return;
     }
     
-    setDestinationEmails([...destinationEmails, currentEmail]);
+    setDestinationEmails([...destinationEmails.filter(email => email.trim() !== ''), currentEmail.trim()]);
     setCurrentEmail('');
     setError(null);
   };
@@ -129,8 +129,11 @@ export default function EmailConfigPage() {
       setError(null);
       setSuccess(null);
       
+      // Filtrar correos vacíos
+      const filteredEmails = destinationEmails.filter(email => email.trim() !== '');
+      
       // Verificar que hay al menos un correo
-      if (destinationEmails.length === 0 || (destinationEmails.length === 1 && !destinationEmails[0].trim())) {
+      if (filteredEmails.length === 0) {
         setError('Debe agregar al menos un correo electrónico');
         setSaving(false);
         return;
@@ -145,7 +148,7 @@ export default function EmailConfigPage() {
       }
       
       // Unir los correos en un string separado por comas
-      const emailsString = destinationEmails.join(', ');
+      const emailsString = filteredEmails.join(', ');
       
       // Asegurarse de que la configuración esté activada a menos que el usuario la desactive explícitamente
       const configToSave = {
@@ -189,15 +192,18 @@ export default function EmailConfigPage() {
       setError(null);
       setSuccess(null);
       
+      // Filtrar correos vacíos
+      const filteredEmails = destinationEmails.filter(email => email.trim() !== '');
+      
       // Verificar que hay al menos un correo
-      if (destinationEmails.length === 0 || (destinationEmails.length === 1 && !destinationEmails[0].trim())) {
+      if (filteredEmails.length === 0) {
         setError('Debe agregar al menos un correo electrónico para la prueba');
         setTestSending(false);
         return;
       }
       
       // Enviamos el correo de prueba al primer destinatario para simplificar
-      const testEmail = destinationEmails[0];
+      const testEmail = filteredEmails[0];
       
       const response = await fetch('/api/test-email', {
         method: 'POST',
@@ -232,15 +238,18 @@ export default function EmailConfigPage() {
       setError(null);
       setSuccess(null);
       
+      // Filtrar correos vacíos
+      const filteredEmails = destinationEmails.filter(email => email.trim() !== '');
+      
       // Verificar que hay al menos un correo
-      if (destinationEmails.length === 0 || (destinationEmails.length === 1 && !destinationEmails[0].trim())) {
+      if (filteredEmails.length === 0) {
         setError('Debe agregar al menos un correo electrónico para enviar el reporte');
         setSendingReport(false);
         return;
       }
       
       // Enviamos el reporte al primer destinatario para simplificar
-      const reportEmail = destinationEmails[0];
+      const reportEmail = filteredEmails[0];
       
       const response = await fetch('/api/cron/send-activity-report', {
         method: 'POST',
@@ -447,7 +456,7 @@ export default function EmailConfigPage() {
                 <button
                   type="button"
                   onClick={sendTestEmail}
-                  disabled={testSending || destinationEmails.length === 0 || destinationEmails[0] === ''}
+                  disabled={testSending || destinationEmails.filter(email => email.trim() !== '').length === 0}
                   className="inline-flex justify-center rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600"
                 >
                   {testSending ? 'Enviando...' : 'Enviar Correo de Prueba'}
@@ -456,7 +465,7 @@ export default function EmailConfigPage() {
                 <button
                   type="button"
                   onClick={sendManualReport}
-                  disabled={sendingReport || destinationEmails.length === 0 || destinationEmails[0] === ''}
+                  disabled={sendingReport || destinationEmails.filter(email => email.trim() !== '').length === 0}
                   className="inline-flex justify-center items-center rounded-md border border-green-500 bg-green-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sendingReport ? (

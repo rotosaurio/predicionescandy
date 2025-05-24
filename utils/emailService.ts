@@ -28,8 +28,11 @@ const createTransporter = () => {
 
 // Validar si un email es válido usando una expresión regular simple
 export const isValidEmail = (email: string): boolean => {
+  if (!email || email.trim() === '') {
+    return false;
+  }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  return emailRegex.test(email.trim());
 };
 
 /**

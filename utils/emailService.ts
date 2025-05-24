@@ -186,84 +186,7 @@ export const sendActivityReport = async (
   html += `
       </div>
       
-      <h2 style="color: #444; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 10px;">Detalle de Usuarios más Activos</h2>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-        <thead>
-          <tr style="background-color: #f3f3f3;">
-            <th style="padding: 12px; text-align: left; border-bottom: 1px solid #ddd;">Usuario</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Sucursal</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Tiempo Activo</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Vistas de Página</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Última Actividad</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
-  
-  // Agregar filas para cada usuario
-  if (activityData.users && activityData.users.length > 0) {
-    activityData.users.forEach((user: any) => {
-      html += `
-        <tr>
-          <td style="padding: 12px; border-bottom: 1px solid #eee;">${user.username}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${user.branch || 'N/A'}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${user.activeTime || '0h 0m'}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${user.totalPageViews || 0}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${user.lastActivity || 'No disponible'}</td>
-        </tr>
-      `;
-    });
-  } else {
-    html += `
-      <tr>
-        <td colspan="5" style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">No hay datos disponibles de usuarios activos</td>
-      </tr>
-    `;
-  }
-  
-  html += `
-        </tbody>
-      </table>
-  `;
-  
-  // Sección de estadísticas de uso por módulo, si existen
-  if (activityData.moduleUsage && activityData.moduleUsage.length > 0) {
-    html += `
-      <h2 style="color: #444; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 10px;">Estadísticas de Uso por Módulo</h2>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-        <thead>
-          <tr style="background-color: #f3f3f3;">
-            <th style="padding: 12px; text-align: left; border-bottom: 1px solid #ddd;">Módulo</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Visitas</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Tiempo Promedio</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-    
-    activityData.moduleUsage.forEach((module: any) => {
-      // Convertir tiempo promedio de milisegundos a formato legible
-      const avgTimeInMin = Math.floor((module.avgTime || 0) / (1000 * 60));
-      const avgTimeFormatted = avgTimeInMin > 0 ? `${avgTimeInMin} min` : `< 1 min`;
-      
-      html += `
-        <tr>
-          <td style="padding: 12px; border-bottom: 1px solid #eee;">${module.module || 'No especificado'}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${module.count || 0}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${avgTimeFormatted}</td>
-        </tr>
-      `;
-    });
-    
-    html += `
-        </tbody>
-      </table>
-    `;
-  }
-  
-  // Sección de errores del sistema, si existen
-  if (activityData.systemHealth && activityData.systemHealth.errors && activityData.systemHealth.errors.length > 0) {
-    html += `
+      ${activityData.systemHealth && activityData.systemHealth.errors && activityData.systemHealth.errors.length > 0 ? `
       <h2 style="color: #444; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 10px;">Errores Detectados</h2>
       <div style="background-color: #fff8f8; border-left: 4px solid #e74c3c; padding: 15px; margin-top: 20px; border-radius: 5px;">
         <p style="margin-top: 0; color: #e74c3c; font-weight: bold;">Se detectaron ${activityData.systemHealth.errorCount} errores en el sistema.</p>
@@ -276,26 +199,18 @@ export const sendActivityReport = async (
             </tr>
           </thead>
           <tbody>
-    `;
-    
-    activityData.systemHealth.errors.forEach((error: any) => {
-      html += `
+      ${activityData.systemHealth.errors.map((error: any) => `
         <tr>
           <td style="padding: 10px; border-bottom: 1px solid #eee;">${error.message}</td>
           <td style="padding: 10px; text-align: center; border-bottom: 1px solid #eee;">${error.component}</td>
           <td style="padding: 10px; text-align: center; border-bottom: 1px solid #eee;">${error.timestamp}</td>
         </tr>
-      `;
-    });
-    
-    html += `
+      `).join('')}
           </tbody>
         </table>
       </div>
-    `;
-  }
-  
-  html += `
+      ` : ''}
+      
       <div style="margin-top: 40px; text-align: center; color: #888; font-size: 14px; padding: 20px; border-top: 1px solid #eee;">
         <p>Este es un correo automático generado por el Sistema de Predicciones.</p>
         <p>Reporte generado el ${formattedDate} a las ${new Date().getHours().toString().padStart(2, '0')}:${new Date().getMinutes().toString().padStart(2, '0')}</p>

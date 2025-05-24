@@ -331,10 +331,8 @@ export default function EmailConfigPage() {
               <ul className="list-disc list-inside text-blue-700 dark:text-blue-400 text-sm mt-2 ml-4">
                 <li>Última conexión por sucursal</li>
                 <li>Tiempo activo de usuarios</li>
-                <li>Estadísticas de uso por usuario</li>
                 <li>Exportaciones de reportes Excel por sucursal</li>
                 <li>Predicciones generadas por sucursal</li>
-                <li>Estadísticas de uso de módulos</li>
                 <li>Errores detectados en el sistema</li>
               </ul>
             </div>
@@ -525,10 +523,10 @@ export default function EmailConfigPage() {
                 
                 <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
                   <div className="px-4 py-5 sm:p-6">
-                    <h4 className="text-base font-medium text-gray-900 dark:text-white">Uso por Módulo</h4>
+                    <h4 className="text-base font-medium text-gray-900 dark:text-white">Detalles por Sucursal</h4>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      Estadísticas sobre qué módulos del sistema se utilizan más frecuentemente y el tiempo
-                      promedio que los usuarios dedican a cada uno.
+                      El reporte incluye información detallada sobre cada sucursal, incluyendo
+                      predicciones generadas, exportaciones y última actividad.
                     </p>
                   </div>
                 </div>

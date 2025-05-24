@@ -221,9 +221,7 @@ function generateTestEmailHtml(formattedDate: string, activityData: any): string
       <ol>
         <li>Resumen de actividad por sucursal</li>
         <li>Detalles de actividad por sucursal (con exportaciones, última conexión, etc.)</li>
-        <li>Usuarios más activos y su actividad detallada</li>
-        <li>Estadísticas de uso por módulo</li>
-        <li>Errores detectados en el sistema</li>
+        <li>Errores detectados en el sistema (si hay alguno)</li>
       </ol>
       
       <div style="margin-top: 40px; text-align: center; color: #888; font-size: 14px; padding-top: 20px; border-top: 1px solid #eee;">

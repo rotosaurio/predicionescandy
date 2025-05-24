@@ -2,208 +2,269 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
 
+// Sistema de logs para API
+function logApi(level: 'INFO' | 'WARN' | 'ERROR', message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}] [USER-ACTIVITY-API] [${level}]`;
+  
+  if (data !== undefined) {
+    console.log(`${prefix} ${message}`, typeof data === 'object' ? JSON.stringify(data) : data);
+  } else {
+    console.log(`${prefix} ${message}`);
+  }
+}
+
+// Logger simplificado para esta API
+const logger = {
+  info: (message: string, data?: any) => {
+    console.log(`[USER-ACTIVITY-API] [INFO] ${message}`, data ? JSON.stringify(data) : '');
+  },
+  error: (message: string, data?: any) => {
+    console.error(`[USER-ACTIVITY-API] [ERROR] ${message}`, data ? JSON.stringify(data) : '');
+  }
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ success: false, message: 'Method not allowed' });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ success: false, message: 'Método no permitido' });
   }
 
   try {
+    const { userId, username, branch, sessionId, activityType, pageViews, metadata } = req.body;
+
+    // Validar datos requeridos
+    if (!userId || !username || !activityType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan datos requeridos: userId, username y activityType son obligatorios'
+      });
+    }
+
     const { db } = await connectToDatabase();
     
-    // POST - Record user activity
-    if (req.method === 'POST') {
-      const {
-        userId,
-        username,
-        branch,
-        sessionId,
-        sessionDate, // Use this for daily consolidation
-        events,
-        interactionCount,
-        totalActiveTime,
-        totalIdleTime,
-        isFinal,
-        sessionStartTime
-      } = req.body;
-
-      if (!userId || !username || !sessionId || !events || events.length === 0) {
-        return res.status(400).json({ success: false, message: 'Missing required fields' });
-      }
-
-      // Find existing session for this user and date
-      const dailySessionQuery = { 
-        userId,
-        sessionDate: sessionDate || new Date().toISOString().split('T')[0]
-      };
-      
-      let session = await db.collection('user_daily_sessions').findOne(dailySessionQuery);
-      
-      const eventStartTime = new Date(events[0].timestamp);
-      
-      if (!session) {
-        // Create a new daily session
-        session = {
-          ...dailySessionQuery,
-          username,
-          branch,
-          startTime: eventStartTime,
-          endTime: new Date(), // Will be updated with the latest time
-          sessionIds: [sessionId], // Track all session IDs that are part of this day
-          events: [],
-          totalActiveTime: 0,
-          totalIdleTime: 0,
-          interactionCount: 0,
-          lastUpdated: new Date(),
-          sessionStartTime: sessionStartTime || Date.now() // Store the client-side session start time
-        };
-      } else if (!session.sessionIds.includes(sessionId)) {
-        // Add this sessionId to the list if it's not already there
-        session.sessionIds.push(sessionId);
-      }
-
-      // Filter out duplicate events
-      const newEvents = events.filter((event: { details: string; timestamp: string }) => 
-        !session.events.some((existingEvent: { details: string; timestamp: string }) => 
-          existingEvent.details === event.details && 
-          new Date(existingEvent.timestamp).getTime() === new Date(event.timestamp).getTime()
-        )
-      );
-
-      // Update session with new data - CRITICAL FIX
-      session.events = [...session.events, ...newEvents];
-      
-      // Don't accumulate times; use the latest values from the client
-      session.totalActiveTime = totalActiveTime;
-      session.totalIdleTime = totalIdleTime;
-      session.interactionCount = interactionCount;
-      session.lastUpdated = new Date();
-      
-      // If this is the final update for this session component, update the end time
-      if (isFinal) {
-        session.endTime = new Date();
-      }
-      
-      // Upsert the daily session
-      await db.collection('user_daily_sessions').updateOne(
-        dailySessionQuery,
-        { $set: session },
-        { upsert: true }
-      );
-
-      // Update user stats
-      await updateUserActivityStats(db, userId, username, branch, isFinal ? session : null);
-
-      return res.status(200).json({ success: true });
-    }
+    // Fecha actual formateada como YYYY-MM-DD
+    const currentDate = new Date().toISOString().split('T')[0];
     
-    // GET - Retrieve user activity data
-    if (req.method === 'GET') {
-      const { userId, branch, startDate, endDate } = req.query;
-      
-      // Build query
-      let query: any = {};
-      
-      if (userId) {
-        query.userId = userId;
-      }
-      
-      if (branch) {
-        query.branch = branch;
-      }
-      
-      if (startDate || endDate) {
-        query.sessionDate = {};
-        if (startDate) {
-          query.sessionDate.$gte = startDate as string;
-        }
-        if (endDate) {
-          query.sessionDate.$lte = endDate as string;
-        }
-      }
-      
-      // For single user stats
-      if (userId) {
-        // Get user overall stats
-        const userStats = await db.collection('user_activity_stats').findOne({ userId });
+    // Registrar actividad dependiendo del tipo
+    switch (activityType) {
+      case 'session_start':
+        // Iniciar nueva sesión
+        await db.collection('user_sessions').insertOne({
+          userId,
+          username,
+          branch: branch || 'No especificada',
+          sessionId,
+          startTime: new Date(),
+          isActive: true,
+          lastActivity: new Date(),
+          userAgent: req.headers['user-agent'],
+          ipAddress: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+          sessionDate: currentDate
+        });
         
-        if (!userStats) {
-          return res.status(404).json({ success: false, message: 'User stats not found' });
-        }
+        logger.info(`Sesión iniciada: ${username}`, { userId, sessionId, branch });
+        break;
         
-        // Get daily sessions, now sorted by date
-        const dailySessions = await db.collection('user_daily_sessions')
-          .find({ userId })
-          .sort({ sessionDate: -1 })
-          .limit(14) // Show last 2 weeks
-          .toArray();
+      case 'session_end':
+        // Finalizar sesión
+        const session = await db.collection('user_sessions').findOne({
+          sessionId,
+          isActive: true
+        });
         
-        // If we have sessions but userStats shows zeros, recalculate the stats
-        if (dailySessions.length > 0 && 
-            (userStats.totalActiveTime === 0 && userStats.totalIdleTime === 0 && userStats.totalSessions === 0)) {
-          // Calculate totals from sessions
-          let totalActiveTime = 0;
-          let totalIdleTime = 0;
-          let totalInteractions = 0;
-          const uniqueDates = new Set();
+        if (session) {
+          const endTime = new Date();
+          const sessionDuration = endTime.getTime() - new Date(session.startTime).getTime();
           
-        interface DailySession {
-            totalActiveTime?: number;
-            totalIdleTime?: number;
-            interactionCount?: number;
-            sessionDate: string;
-        }
-
-                            dailySessions.forEach((session: DailySession) => {
-                                totalActiveTime += session.totalActiveTime || 0;
-                                totalIdleTime += session.totalIdleTime || 0;
-                                totalInteractions += session.interactionCount || 0;
-                                uniqueDates.add(session.sessionDate);
-                            });
-          
-          // Update user stats
-          const updatedStats = {
-            ...userStats,
-            totalSessions: uniqueDates.size,
-            totalActiveTime,
-            totalIdleTime,
-            totalInteractions,
-            averageSessionDuration: uniqueDates.size > 0 ? (totalActiveTime + totalIdleTime) / uniqueDates.size : 0,
-            averageActiveTimePerSession: uniqueDates.size > 0 ? totalActiveTime / uniqueDates.size : 0,
-            lastActive: new Date()
-          };
-          
-          // Update in database
-          await db.collection('user_activity_stats').updateOne(
-            { userId },
-            { $set: updatedStats }
+          await db.collection('user_sessions').updateOne(
+            { sessionId, isActive: true },
+            { 
+              $set: {
+                endTime,
+                isActive: false,
+                duration: sessionDuration,
+                activityDetails: {
+                  pageViews: pageViews || [],
+                  lastPage: metadata?.currentPage || 'No especificada'
+                }
+              }
+            }
           );
           
-          // Return updated stats
-          return res.status(200).json({ 
-            success: true, 
-            userStats: updatedStats,
-            recentSessions: dailySessions 
+          // Actualizar estadísticas diarias
+          await db.collection('user_daily_sessions').updateOne(
+            { 
+              userId, 
+              sessionDate: currentDate,
+              branch: branch || 'No especificada'
+            },
+            {
+              $inc: {
+                sessionCount: 1,
+                totalActiveTime: sessionDuration,
+                pageViews: (pageViews && Array.isArray(pageViews)) ? pageViews.length : 0
+              },
+              $set: {
+                endTime
+              },
+              $setOnInsert: {
+                username,
+                branch: branch || 'No especificada',
+                startTime: session.startTime
+              }
+            },
+            { upsert: true }
+          );
+          
+          logger.info(`Sesión finalizada: ${username}`, { 
+            userId, 
+            sessionId, 
+            duration: Math.floor(sessionDuration / 1000) 
+          });
+        } else {
+          logger.error(`No se encontró sesión activa: ${sessionId}`);
+        }
+        break;
+        
+      case 'heartbeat':
+        // Actualizar tiempo de actividad
+        await db.collection('user_sessions').updateOne(
+          { sessionId, isActive: true },
+          { 
+            $set: {
+              lastActivity: new Date(),
+              'activityDetails.currentPage': metadata?.currentPage,
+              'activityDetails.isIdle': metadata?.isIdle || false
+            } 
+          }
+        );
+        
+        // Actualizar estadísticas de usuario
+        await db.collection('user_activity_stats').updateOne(
+          { userId },
+          {
+            $set: {
+              lastActive: new Date(),
+              username,
+              branch: branch || 'No especificada'
+            },
+            $inc: {
+              heartbeatCount: 1
+            }
+          },
+          { upsert: true }
+        );
+        break;
+        
+      case 'page_view':
+        // Registrar vista de página
+        if (!metadata || !metadata.page) {
+          return res.status(400).json({
+            success: false,
+            message: 'Falta información de la página visitada'
           });
         }
         
-        return res.status(200).json({ 
-          success: true, 
-          userStats,
-          recentSessions: dailySessions 
+        await db.collection('user_page_views').insertOne({
+          userId,
+          username,
+          branch: branch || 'No especificada',
+          sessionId,
+          timestamp: new Date(),
+          page: metadata.page,
+          referrer: metadata.referrer || '',
+          module: metadata.module || 'No especificado',
+          viewDate: currentDate
         });
-      } else {
-        // Return all users' stats
-        const allUserStats = await db.collection('user_activity_stats')
-          .find({})
-          .sort({ lastActive: -1 })
-          .toArray();
         
-        return res.status(200).json({ success: true, stats: allUserStats });
-      }
+        // Actualizar estadísticas de módulo
+        if (metadata.module) {
+          await db.collection('module_usage_stats').updateOne(
+            { 
+              module: metadata.module,
+              date: currentDate
+            },
+            {
+              $inc: { 
+                viewCount: 1,
+                [`userCounts.${userId}`]: 1
+              }
+            },
+            { upsert: true }
+          );
+        }
+        
+        break;
+        
+      case 'user_action':
+        // Registrar acción específica (como exportar Excel)
+        if (!metadata || !metadata.action) {
+          return res.status(400).json({
+            success: false,
+            message: 'Falta información de la acción realizada'
+          });
+        }
+        
+        // Registrar en logs del sistema
+        await db.collection('system_log').insertOne({
+          timestamp: new Date(),
+          type: 'user_action',
+          user: {
+            userId,
+            username,
+            branch: branch || 'No especificada'
+          },
+          message: `${username} realizó: ${metadata.action}`,
+          details: {
+            action: metadata.action,
+            page: metadata.page || 'No especificada',
+            sessionId,
+            actionData: metadata.actionData || {}
+          },
+          logDate: currentDate
+        });
+        
+        // Si es una exportación, registrarla específicamente
+        if (metadata.action === 'export_excel' || metadata.action === 'download_report') {
+          await db.collection('user_exports').insertOne({
+            userId,
+            username,
+            branch: branch || 'No especificada',
+            timestamp: new Date(),
+            exportType: metadata.action,
+            fileName: metadata.actionData?.fileName || 'No especificado',
+            filters: metadata.actionData?.filters || {},
+            exportDate: currentDate
+          });
+        }
+        
+        logger.info(`Acción registrada: ${username} - ${metadata.action}`, { 
+          userId, 
+          branch, 
+          actionData: metadata.actionData
+        });
+        break;
+        
+      default:
+        return res.status(400).json({
+          success: false,
+          message: `Tipo de actividad no reconocido: ${activityType}`
+        });
     }
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Actividad registrada correctamente'
+    });
+    
   } catch (error) {
-    console.error('Error in user-activity API:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: (error as Error).message });
+    logger.error('Error al registrar actividad de usuario', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno al registrar actividad',
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    });
   }
 }
 
@@ -218,6 +279,7 @@ async function updateUserActivityStats(db: any, userId: string, username: string
   
   if (!userStats) {
     // Create new stats object if it doesn't exist
+    logApi('INFO', `Creando nuevas estadísticas para usuario: ${username} (${userId})`);
     userStats = {
       userId,
       username,
@@ -249,7 +311,7 @@ async function updateUserActivityStats(db: any, userId: string, username: string
     const newIdleTime = completedSession.totalIdleTime || 0;
     const newInteractions = completedSession.interactionCount || 0;
     
-    console.log(`Updating stats for ${username} - Active: ${formatDuration(newActiveTime)}, Idle: ${formatDuration(newIdleTime)}, Int: ${newInteractions}`);
+    logApi('INFO', `Actualizando estadísticas para ${username} - Activo: ${formatDuration(newActiveTime)}, Inactivo: ${formatDuration(newIdleTime)}, Int: ${newInteractions}`);
     
     // Update the cumulative stats
     userStats.totalActiveTime += newActiveTime;
@@ -264,12 +326,8 @@ async function updateUserActivityStats(db: any, userId: string, username: string
         sessionDate: completedSession.sessionDate
       });
       
-      // Recalculate averages based on all daily sessions
-      // ...existing code for recalculating averages...
+      logApi('INFO', `Registrando nuevo día de actividad para ${username}: ${completedSession.sessionDate}`);
     }
-    
-    // Update most visited pages
-    // ...existing code for page visits...
   }
   
   // Update or insert the stats

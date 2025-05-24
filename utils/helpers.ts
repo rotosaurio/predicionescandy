@@ -1,5 +1,54 @@
 // Helper functions for the app
 
+// Nuevo módulo centralizado de logs
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+
+interface LoggerOptions {
+  module: string;
+  showTimestamp?: boolean;
+}
+
+class Logger {
+  private module: string;
+  private showTimestamp: boolean;
+  
+  constructor(options: LoggerOptions) {
+    this.module = options.module;
+    this.showTimestamp = options.showTimestamp !== false;
+  }
+  
+  debug(message: string, data?: any): void {
+    this.log('DEBUG', message, data);
+  }
+  
+  info(message: string, data?: any): void {
+    this.log('INFO', message, data);
+  }
+  
+  warn(message: string, data?: any): void {
+    this.log('WARN', message, data);
+  }
+  
+  error(message: string, data?: any): void {
+    this.log('ERROR', message, data);
+  }
+  
+  private log(level: LogLevel, message: string, data?: any): void {
+    const timestamp = this.showTimestamp ? `[${new Date().toISOString()}]` : '';
+    const prefix = `${timestamp} [${this.module}] [${level}]`;
+    
+    if (data !== undefined) {
+      console.log(`${prefix} ${message}`, typeof data === 'object' ? JSON.stringify(data) : data);
+    } else {
+      console.log(`${prefix} ${message}`);
+    }
+  }
+}
+
+export function createLogger(module: string): Logger {
+  return new Logger({ module });
+}
+
 /**
  * Format date from YYYY-MM-DD to DD/MM/YYYY format for API requests
  */

@@ -1344,6 +1344,51 @@ export default function AdminPanel() {
                 </section>
               </div>
             </div>
+
+            {/* New section for email configuration */}
+            <div className="mt-8 space-y-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Administración del Sistema</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Existing links */}
+                <Link href="/admin/inventario" className="group flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md dark:hover:bg-gray-700 transition-all">
+                  <div className="flex-shrink-0 bg-indigo-100 dark:bg-indigo-900/30 rounded-md p-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600 dark:text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-base font-medium text-gray-900 dark:text-white">Historial de Inventario</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Ver historial de cargas de inventario CEDIS</p>
+                  </div>
+                </Link>
+                
+                <Link href="/admin/upload-inventario" className="group flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md dark:hover:bg-gray-700 transition-all">
+                  <div className="flex-shrink-0 bg-green-100 dark:bg-green-900/30 rounded-md p-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-600 dark:text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-base font-medium text-gray-900 dark:text-white">Cargar Inventario</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Subir nuevo archivo de inventario CEDIS</p>
+                  </div>
+                </Link>
+                
+                {/* New link to email configuration */}
+                <Link href="/admin/email-config" className="group flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md dark:hover:bg-gray-700 transition-all">
+                  <div className="flex-shrink-0 bg-blue-100 dark:bg-blue-900/30 rounded-md p-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-600 dark:text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-base font-medium text-gray-900 dark:text-white">Reportes por Correo</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Configurar envío diario de estadísticas de actividad</p>
+                  </div>
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </main>

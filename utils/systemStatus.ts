@@ -10,6 +10,27 @@ interface SystemStatus {
   tipo_modelo: string;
 }
 
+// Sistema de logs mejorado con niveles de severidad
+type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+
+const logger = {
+  debug: (message: string, data?: any) => logWithLevel('DEBUG', message, data),
+  info: (message: string, data?: any) => logWithLevel('INFO', message, data),
+  warn: (message: string, data?: any) => logWithLevel('WARN', message, data),
+  error: (message: string, data?: any) => logWithLevel('ERROR', message, data)
+};
+
+function logWithLevel(level: LogLevel, message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const formattedMessage = `[${timestamp}] [SYSTEM-STATUS] [${level}] ${message}`;
+  
+  if (data !== undefined) {
+    console.log(formattedMessage, typeof data === 'object' ? JSON.stringify(data) : data);
+  } else {
+    console.log(formattedMessage);
+  }
+}
+
 // Get the base API URL depending on environment
 const getApiBaseUrl = () => {
   // In production, use relative URL or environment variable
@@ -24,7 +45,7 @@ const getApiBaseUrl = () => {
 export const checkSystemStatus = async (): Promise<SystemStatus> => {
   try {
     const baseUrl = getApiBaseUrl();
-    console.log(`Fetching system status from: ${baseUrl}/api/estado`);
+    logger.info(`Consultando estado del sistema desde: ${baseUrl}/api/estado`);
     
     // Add timestamp to prevent caching
     const timestamp = new Date().getTime();
@@ -40,18 +61,21 @@ export const checkSystemStatus = async (): Promise<SystemStatus> => {
     });
     
     if (!response.ok) {
+      logger.error(`Error al consultar estado del sistema: código ${response.status}`);
       throw new Error(`Error fetching system status: ${response.status}`);
     }
     
     const data = await response.json();
-    console.log('System status response:', JSON.stringify(data));
+    logger.debug('Respuesta del sistema:', data);
     
     // Add extra validation and normalize the estado value
     if (typeof data !== 'object' || data === null) {
+      logger.error('Respuesta inválida del estado del sistema: no es un objeto');
       throw new Error('Invalid system status response: not an object');
     }
     
     if (!('estado' in data)) {
+      logger.error('Respuesta inválida del estado del sistema: falta propiedad "estado"');
       throw new Error('Invalid system status response: missing estado property');
     }
     
@@ -61,10 +85,10 @@ export const checkSystemStatus = async (): Promise<SystemStatus> => {
       estado: data.estado.trim().toLowerCase()
     };
     
-    console.log('Normalized system status:', normalizedData);
+    logger.info('Estado del sistema normalizado:', normalizedData);
     return normalizedData as SystemStatus;
   } catch (err) {
-    console.error('Error checking system status:', err);
+    logger.error('Error al verificar estado del sistema:', err);
     // Return inactive status on error
     return { 
       estado: 'inactivo',
@@ -82,25 +106,28 @@ export const checkSystemStatus = async (): Promise<SystemStatus> => {
 
 // Helper to determine if system is active with more detailed logging
 export const isSystemActive = (status: SystemStatus | null): boolean => {
-  console.log('Checking if system is active with status:', status);
+  logger.debug('Verificando si el sistema está activo con estado:', status);
   
   // If status is null or undefined, system is not active
   if (!status) {
-    console.log('System status is null or undefined, returning inactive');
+    logger.warn('Estado del sistema es nulo o indefinido, retornando inactivo');
     return false;
   }
   
   // Debug logging to see the exact estado value
-  console.log('System estado value:', status.estado);
+  logger.debug('Valor de estado del sistema:', status.estado);
   
   // Check if the status is explicitly "activo" (normalized to lowercase)
   const isActive = status.estado === 'activo';
-  console.log('Is system active?', isActive);
+  logger.info(`¿Está el sistema activo? ${isActive}`);
   
   return isActive;
 };
 
 export const interpretSystemStatus = (statusData: any): "activo" | "offline" => {
-  console.log("API Response:", statusData); // Verifica la respuesta de la API
+  logger.debug("Respuesta de API:", statusData);
   return statusData?.estado === "activo" ? "activo" : "offline";
 };
+
+// Exportar el logger para uso en otros módulos
+export { logger as systemLogger };

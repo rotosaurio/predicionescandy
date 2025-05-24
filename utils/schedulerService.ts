@@ -100,8 +100,8 @@ export const generateActivityReport = async (): Promise<any> => {
       .toArray();
     
     // Agrupar acciones por sucursal
-    const branchActions = {};
-    userActions.forEach(action => {
+    const branchActions: { [key: string]: { exports: number, downloads: number, predictions: number, views: number } } = {};
+    userActions.forEach((action: any) => {
       const branch = action?.user?.branch || 'No especificada';
       if (!branchActions[branch]) {
         branchActions[branch] = {
@@ -198,7 +198,7 @@ export const generateActivityReport = async (): Promise<any> => {
       };
       
       // Añadir última acción si existe
-      const recentAction = recentActions.find(a => a.branch === branch.name);
+      const recentAction = recentActions.find((a: any) => a.branch === branch.name);
       if (recentAction) {
         branch.recentActivity = {
           action: recentAction.action,
@@ -251,7 +251,7 @@ export const generateActivityReport = async (): Promise<any> => {
       .toArray();
     
     // Formatear errores para el reporte
-    const errors = systemErrors.map(error => ({
+    const errors = systemErrors.map((error: any) => ({
       message: error.message,
       component: error.details?.componentName || 'No especificado',
       timestamp: formatDate(error.timestamp)

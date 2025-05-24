@@ -212,7 +212,7 @@ function generateTestEmailHtml(formattedDate: string, activityData: any): string
           <li><strong>Sucursales activas:</strong> ${activityData.branches?.length || 0}</li>
           <li><strong>Usuarios activos:</strong> ${activityData.users?.length || 0}</li>
           <li><strong>Fecha del reporte:</strong> ${activityData.date ? activityData.date.split('-').reverse().join('/') : formattedDate}</li>
-          <li><strong>Exportaciones totales:</strong> ${activityData.branches?.reduce((sum, branch) => sum + (branch.actions?.exports || 0), 0) || 0}</li>
+          <li><strong>Exportaciones totales:</strong> ${activityData.branches?.reduce((sum: number, branch: any) => sum + (branch.actions?.exports || 0), 0) || 0}</li>
           <li><strong>Predicciones generadas:</strong> ${activityData.predictions?.total || 0}</li>
         </ul>
       </div>

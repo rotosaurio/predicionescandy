@@ -84,17 +84,60 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Generar reporte
     const reportData = await generateActivityReport();
     
-    // Enviar correo directamente
-    const success = await sendActivityReport(destinationEmail, reportData);
-    
-    if (success) {
-      logger.info(`Reporte de actividad enviado exitosamente a ${destinationEmail}`);
-      return res.status(200).json({
-        success: true,
-        message: `Reporte enviado correctamente a ${destinationEmail}`
-      });
-    } else {
-      throw new Error(`Error al enviar reporte a ${destinationEmail}`);
+    // Si es un email manual, enviamos a un solo destinatario
+    if (manualEmail) {
+      const success = await sendActivityReport(manualEmail, reportData);
+      
+      if (success) {
+        logger.info(`Reporte de actividad enviado exitosamente a ${manualEmail}`);
+        return res.status(200).json({
+          success: true,
+          message: `Reporte enviado correctamente a ${manualEmail}`
+        });
+      } else {
+        throw new Error(`Error al enviar reporte a ${manualEmail}`);
+      }
+    } 
+    // Si es la configuración de la DB, puede tener múltiples correos
+    else if (config?.destinationEmail) {
+      // Verificar si hay múltiples destinatarios
+      const emails = config.destinationEmail.includes(',') 
+        ? config.destinationEmail.split(',').map((email: string) => email.trim())
+        : [config.destinationEmail];
+      
+      // Enviar correo a cada destinatario
+      let successCount = 0;
+      const failedEmails = [];
+      
+      for (const email of emails) {
+        try {
+          const success = await sendActivityReport(email, reportData);
+          if (success) {
+            successCount++;
+            logger.info(`Reporte de actividad enviado exitosamente a ${email}`);
+          } else {
+            failedEmails.push(email);
+            logger.error(`Error al enviar reporte de actividad a ${email}`);
+          }
+        } catch (error) {
+          failedEmails.push(email);
+          logger.error(`Error al enviar reporte a ${email}`, error);
+        }
+      }
+      
+      if (successCount > 0) {
+        return res.status(200).json({
+          success: true,
+          message: `Reporte enviado correctamente a ${successCount}/${emails.length} destinatarios`,
+          details: {
+            total: emails.length,
+            success: successCount,
+            failed: failedEmails
+          }
+        });
+      } else {
+        throw new Error(`Error al enviar reportes. Ningún envío fue exitoso.`);
+      }
     }
     
   } catch (error) {

@@ -21,7 +21,8 @@ export default function EmailConfigPage() {
   const router = useRouter();
   
   // Estado para manejar la configuración
-  const [destinationEmail, setDestinationEmail] = useState('');
+  const [destinationEmails, setDestinationEmails] = useState<string[]>(['']);
+  const [currentEmail, setCurrentEmail] = useState('');
   const [scheduledTime, setScheduledTime] = useState('08:00');
   const [isActive, setIsActive] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -67,7 +68,18 @@ export default function EmailConfigPage() {
       const data = await response.json();
       
       if (data.success && data.config) {
-        setDestinationEmail(data.config.destinationEmail || '');
+        if (data.config.destinationEmail) {
+          // Verificar si es un solo correo o múltiples separados por comas
+          const emails = data.config.destinationEmail.includes(',') 
+            ? data.config.destinationEmail.split(',').map((email: string) => email.trim())
+            : [data.config.destinationEmail];
+          
+          setDestinationEmails(emails);
+          setCurrentEmail('');
+        } else {
+          setDestinationEmails(['']);
+        }
+        
         setScheduledTime(data.config.scheduledTime || '08:00');
         setIsActive(data.config.isActive !== false);
         
@@ -81,6 +93,33 @@ export default function EmailConfigPage() {
     }
   };
   
+  // Agregar un nuevo correo a la lista
+  const addEmail = () => {
+    if (!currentEmail.trim()) return;
+    
+    // Validar correo
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(currentEmail)) {
+      setError('Por favor, ingrese un correo electrónico válido');
+      return;
+    }
+    
+    // Verificar duplicados
+    if (destinationEmails.includes(currentEmail)) {
+      setError('Este correo ya está en la lista');
+      return;
+    }
+    
+    setDestinationEmails([...destinationEmails, currentEmail]);
+    setCurrentEmail('');
+    setError(null);
+  };
+  
+  // Eliminar un correo de la lista
+  const removeEmail = (indexToRemove: number) => {
+    setDestinationEmails(destinationEmails.filter((_, index) => index !== indexToRemove));
+  };
+  
   // Guardar la configuración 
   const saveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,10 +129,10 @@ export default function EmailConfigPage() {
       setError(null);
       setSuccess(null);
       
-      // Validar correo
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(destinationEmail)) {
-        setError('Por favor, ingrese un correo electrónico válido');
+      // Verificar que hay al menos un correo
+      if (destinationEmails.length === 0 || (destinationEmails.length === 1 && !destinationEmails[0].trim())) {
+        setError('Debe agregar al menos un correo electrónico');
+        setSaving(false);
         return;
       }
       
@@ -101,12 +140,16 @@ export default function EmailConfigPage() {
       const timeRegex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
       if (!timeRegex.test(scheduledTime)) {
         setError('La hora debe estar en formato HH:MM (24h)');
+        setSaving(false);
         return;
       }
       
+      // Unir los correos en un string separado por comas
+      const emailsString = destinationEmails.join(', ');
+      
       // Asegurarse de que la configuración esté activada a menos que el usuario la desactive explícitamente
       const configToSave = {
-        destinationEmail,
+        destinationEmail: emailsString,
         scheduledTime,
         isActive: isActive
       };
@@ -124,7 +167,7 @@ export default function EmailConfigPage() {
       if (data.success) {
         setSuccess('Configuración guardada correctamente');
         logger.info('Configuración de correo guardada', {
-          email: destinationEmail,
+          emails: emailsString,
           time: scheduledTime,
           isActive
         });
@@ -146,12 +189,15 @@ export default function EmailConfigPage() {
       setError(null);
       setSuccess(null);
       
-      // Validar correo
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(destinationEmail)) {
-        setError('Por favor, ingrese un correo electrónico válido para la prueba');
+      // Verificar que hay al menos un correo
+      if (destinationEmails.length === 0 || (destinationEmails.length === 1 && !destinationEmails[0].trim())) {
+        setError('Debe agregar al menos un correo electrónico para la prueba');
+        setTestSending(false);
         return;
       }
+      
+      // Enviamos el correo de prueba al primer destinatario para simplificar
+      const testEmail = destinationEmails[0];
       
       const response = await fetch('/api/test-email', {
         method: 'POST',
@@ -159,15 +205,15 @@ export default function EmailConfigPage() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: destinationEmail
+          email: testEmail
         })
       });
       
       const data = await response.json();
       
       if (data.success) {
-        setSuccess(`Correo de prueba enviado correctamente a ${destinationEmail}`);
-        logger.info('Correo de prueba enviado', { email: destinationEmail });
+        setSuccess(`Correo de prueba enviado correctamente a ${testEmail}`);
+        logger.info('Correo de prueba enviado', { email: testEmail });
       } else {
         throw new Error(data.message || 'Error al enviar correo de prueba');
       }
@@ -186,12 +232,15 @@ export default function EmailConfigPage() {
       setError(null);
       setSuccess(null);
       
-      // Validar correo
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(destinationEmail)) {
-        setError('Por favor, ingrese un correo electrónico válido para enviar el reporte');
+      // Verificar que hay al menos un correo
+      if (destinationEmails.length === 0 || (destinationEmails.length === 1 && !destinationEmails[0].trim())) {
+        setError('Debe agregar al menos un correo electrónico para enviar el reporte');
+        setSendingReport(false);
         return;
       }
+      
+      // Enviamos el reporte al primer destinatario para simplificar
+      const reportEmail = destinationEmails[0];
       
       const response = await fetch('/api/cron/send-activity-report', {
         method: 'POST',
@@ -199,15 +248,15 @@ export default function EmailConfigPage() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: destinationEmail
+          email: reportEmail
         })
       });
       
       const data = await response.json();
       
       if (data.success) {
-        setSuccess(`Reporte enviado manualmente a ${destinationEmail}`);
-        logger.info('Reporte enviado manualmente', { email: destinationEmail });
+        setSuccess(`Reporte enviado manualmente a ${reportEmail}`);
+        logger.info('Reporte enviado manualmente', { email: reportEmail });
       } else {
         throw new Error(data.message || 'Error al enviar el reporte manualmente');
       }
@@ -297,23 +346,58 @@ export default function EmailConfigPage() {
             {/* Formulario de configuración */}
             <form onSubmit={saveConfig} className="space-y-6">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Correo de Destino
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Correos de Destino
                 </label>
-                <div className="mt-1">
+                
+                {/* Lista de correos agregados */}
+                <div className="mb-4">
+                  {destinationEmails.length > 0 && destinationEmails[0] !== '' ? (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {destinationEmails.map((email, index) => (
+                        <div 
+                          key={index} 
+                          className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 px-3 py-1 rounded-full flex items-center text-sm"
+                        >
+                          <span>{email}</span>
+                          <button 
+                            type="button" 
+                            onClick={() => removeEmail(index)}
+                            className="ml-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                      No hay correos configurados. Agregue al menos uno.
+                    </p>
+                  )}
+                </div>
+                
+                {/* Agregar nuevo correo */}
+                <div className="flex items-center">
                   <input
                     type="email"
-                    id="email"
-                    name="email"
-                    value={destinationEmail}
-                    onChange={(e) => setDestinationEmail(e.target.value)}
-                    placeholder="correo@ejemplo.com"
+                    value={currentEmail}
+                    onChange={(e) => setCurrentEmail(e.target.value)}
+                    placeholder="nuevo@correo.com"
                     className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
-                    required
                   />
+                  <button
+                    type="button"
+                    onClick={addEmail}
+                    className="ml-3 inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    Agregar
+                  </button>
                 </div>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Dirección de correo donde se enviarán los reportes diarios.
+                  Direcciones de correo donde se enviarán los reportes diarios.
                 </p>
               </div>
               
@@ -363,7 +447,7 @@ export default function EmailConfigPage() {
                 <button
                   type="button"
                   onClick={sendTestEmail}
-                  disabled={testSending || !destinationEmail}
+                  disabled={testSending || destinationEmails.length === 0 || destinationEmails[0] === ''}
                   className="inline-flex justify-center rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600"
                 >
                   {testSending ? 'Enviando...' : 'Enviar Correo de Prueba'}
@@ -372,7 +456,7 @@ export default function EmailConfigPage() {
                 <button
                   type="button"
                   onClick={sendManualReport}
-                  disabled={sendingReport || !destinationEmail}
+                  disabled={sendingReport || destinationEmails.length === 0 || destinationEmails[0] === ''}
                   className="inline-flex justify-center items-center rounded-md border border-green-500 bg-green-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sendingReport ? (

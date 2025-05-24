@@ -296,14 +296,29 @@ export const sendActivityReportTask = async (): Promise<void> => {
     // Generar reporte
     const reportData = await generateActivityReport();
     
-    // Enviar correo
-    const success = await sendActivityReport(config.destinationEmail, reportData);
+    // Verificar si hay múltiples destinatarios
+    const emails = config.destinationEmail.includes(',') 
+      ? config.destinationEmail.split(',').map((email: string) => email.trim())
+      : [config.destinationEmail];
     
-    if (success) {
-      logger.info(`Reporte de actividad enviado exitosamente a ${config.destinationEmail}`);
-    } else {
-      logger.error(`Error al enviar reporte de actividad a ${config.destinationEmail}`);
+    // Enviar correo a cada destinatario
+    let successCount = 0;
+    
+    for (const email of emails) {
+      try {
+        const success = await sendActivityReport(email, reportData);
+        if (success) {
+          successCount++;
+          logger.info(`Reporte de actividad enviado exitosamente a ${email}`);
+        } else {
+          logger.error(`Error al enviar reporte de actividad a ${email}`);
+        }
+      } catch (error) {
+        logger.error(`Error al enviar reporte a ${email}`, error);
+      }
     }
+    
+    logger.info(`Envío de reportes completado. Éxitos: ${successCount}/${emails.length}`);
   } catch (error) {
     logger.error('Error en tarea de envío de reporte', error);
   }

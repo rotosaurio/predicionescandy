@@ -69,13 +69,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
       }
       
-      // Validar formato de correo
-      if (!isValidEmail(destinationEmail)) {
-        logApi('ERROR', 'Formato de correo electrónico inválido', { email: destinationEmail });
-        return res.status(400).json({
-          success: false,
-          message: 'El formato del correo electrónico es inválido'
-        });
+      // Validar formato de correo - ahora pueden ser múltiples correos separados por comas
+      const emailList = destinationEmail.split(',').map((email: string) => email.trim());
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      
+      for (const email of emailList) {
+        if (!emailRegex.test(email)) {
+          logApi('ERROR', 'Formato de correo electrónico inválido', { email });
+          return res.status(400).json({
+            success: false,
+            message: `El formato del correo electrónico "${email}" es inválido`
+          });
+        }
       }
       
       // Validar formato de hora

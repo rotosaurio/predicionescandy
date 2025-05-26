@@ -105,23 +105,58 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       // Fecha actual formateada como YYYY-MM-DD
       const currentDate = new Date().toISOString().split('T')[0];
+      const currentTime = new Date();
       
       // Registrar actividad dependiendo del tipo
       switch (activityType) {
         case 'session_start':
+          // Verificar si hay una sesión activa y cerrarla primero
+          const activeSession = await db.collection('user_sessions').findOne({
+            userId,
+            isActive: true
+          });
+          
+          if (activeSession) {
+            logger.info(`Cerrando sesión activa previa para usuario: ${username}`, { 
+              userId, 
+              oldSessionId: activeSession.sessionId 
+            });
+            
+            const endTime = currentTime;
+            const sessionDuration = endTime.getTime() - new Date(activeSession.startTime).getTime();
+            
+            await db.collection('user_sessions').updateOne(
+              { _id: activeSession._id },
+              { 
+                $set: {
+                  endTime,
+                  isActive: false,
+                  duration: sessionDuration,
+                  activityDetails: {
+                    pageViews: activeSession.activityDetails?.pageViews || [],
+                    lastPage: activeSession.activityDetails?.currentPage || 'No especificada'
+                  }
+                }
+              }
+            );
+          }
+          
           // Iniciar nueva sesión
           await db.collection('user_sessions').insertOne({
-          userId,
+            userId,
             username,
             branch: branch || 'No especificada',
             sessionId,
-            startTime: new Date(),
+            startTime: currentTime,
             isActive: true,
-            lastActivity: new Date(),
+            lastActivity: currentTime,
             userAgent: req.headers['user-agent'],
             ipAddress: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
             sessionDate: currentDate
           });
+          
+          // Actualizar estadísticas de usuario
+          await updateUserActivityStats(db, userId, username, branch);
           
           logger.info(`Sesión iniciada: ${username}`, { userId, sessionId, branch });
           break;
@@ -134,7 +169,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
           
           if (session) {
-            const endTime = new Date();
+            const endTime = currentTime;
             const sessionDuration = endTime.getTime() - new Date(session.startTime).getTime();
             
             await db.collection('user_sessions').updateOne(
@@ -153,7 +188,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             );
             
             // Actualizar estadísticas diarias
-        await db.collection('user_daily_sessions').updateOne(
+            await db.collection('user_daily_sessions').updateOne(
               { 
                 userId, 
                 sessionDate: currentDate,
@@ -166,7 +201,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   pageViews: (pageViews && Array.isArray(pageViews)) ? pageViews.length : 0
                 },
                 $set: {
-                  endTime
+                  endTime,
+                  lastActivity: currentTime
                 },
                 $setOnInsert: {
                   username,
@@ -174,8 +210,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   startTime: session.startTime
                 }
               },
-          { upsert: true }
-        );
+              { upsert: true }
+            );
+
+            // Actualizar estadísticas generales del usuario con la sesión completada
+            const completedSession = {
+              sessionDate: currentDate,
+              totalActiveTime: sessionDuration,
+              totalIdleTime: 0,
+              interactionCount: (pageViews && Array.isArray(pageViews)) ? pageViews.length : 0
+            };
+            
+            await updateUserActivityStats(db, userId, username, branch, completedSession);
 
             logger.info(`Sesión finalizada: ${username}`, { 
               userId, 
@@ -188,24 +234,73 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           break;
           
         case 'heartbeat':
-          // Actualizar tiempo de actividad
-          await db.collection('user_sessions').updateOne(
+          // Actualizar tiempo de actividad en la sesión
+          const updatedSession = await db.collection('user_sessions').findOneAndUpdate(
             { sessionId, isActive: true },
             { 
               $set: {
-                lastActivity: new Date(),
+                lastActivity: currentTime,
                 'activityDetails.currentPage': metadata?.currentPage,
                 'activityDetails.isIdle': metadata?.isIdle || false
               } 
-            }
+            },
+            { returnDocument: 'after' }
           );
           
-          // Actualizar estadísticas de usuario
+          if (!updatedSession.value) {
+            logger.info(`Heartbeat para sesión no encontrada, creando nueva sesión`, { 
+              userId, 
+              sessionId 
+            });
+            
+            // Si no hay sesión activa, crear una nueva
+            await db.collection('user_sessions').insertOne({
+              userId,
+              username,
+              branch: branch || 'No especificada',
+              sessionId,
+              startTime: currentTime,
+              isActive: true,
+              lastActivity: currentTime,
+              userAgent: req.headers['user-agent'],
+              ipAddress: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+              sessionDate: currentDate,
+              activityDetails: {
+                currentPage: metadata?.currentPage,
+                isIdle: metadata?.isIdle || false
+              }
+            });
+          }
+          
+          // Actualizar estadísticas diarias
+          await db.collection('user_daily_sessions').updateOne(
+            { 
+              userId, 
+              sessionDate: currentDate,
+              branch: branch || 'No especificada'
+            },
+            {
+              $set: {
+                lastActivity: currentTime
+              },
+              $setOnInsert: {
+                username,
+                branch: branch || 'No especificada',
+                startTime: currentTime,
+                sessionCount: 0,
+                totalActiveTime: 0,
+                pageViews: 0
+              }
+            },
+            { upsert: true }
+          );
+          
+          // Actualizar estadísticas de usuario con marca de tiempo reciente
           await db.collection('user_activity_stats').updateOne(
             { userId },
             {
               $set: {
-                lastActive: new Date(),
+                lastActive: currentTime,
                 username,
                 branch: branch || 'No especificada'
               },
@@ -215,6 +310,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             },
             { upsert: true }
           );
+          
+          logger.info(`Heartbeat registrado: ${username}`, { 
+            userId, 
+            sessionId, 
+            page: metadata?.currentPage,
+            timestamp: currentTime
+          });
           break;
           
         case 'page_view':
@@ -231,7 +333,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             username,
             branch: branch || 'No especificada',
             sessionId,
-            timestamp: new Date(),
+            timestamp: currentTime,
             page: metadata.page,
             referrer: metadata.referrer || '',
             module: metadata.module || 'No especificado',
@@ -255,6 +357,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             );
           }
           
+          // Actualizar estadísticas del usuario
+          await db.collection('user_activity_stats').updateOne(
+            { userId },
+            {
+              $set: {
+                lastActive: currentTime,
+                username,
+                branch: branch || 'No especificada'
+              },
+              $inc: {
+                totalPageViews: 1
+              }
+            },
+            { upsert: true }
+          );
+          
+          logger.info(`Vista de página registrada: ${username} - ${metadata.page}`, { 
+            userId,
+            sessionId,
+            module: metadata.module || 'No especificado'
+          });
           break;
           
         case 'user_action':
@@ -268,7 +391,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           // Registrar en logs del sistema
           await db.collection('system_log').insertOne({
-            timestamp: new Date(),
+            timestamp: currentTime,
             type: 'user_action',
             user: {
               userId,
@@ -291,13 +414,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               userId,
               username,
               branch: branch || 'No especificada',
-              timestamp: new Date(),
+              timestamp: currentTime,
               exportType: metadata.action,
               fileName: metadata.actionData?.fileName || 'No especificado',
               filters: metadata.actionData?.filters || {},
               exportDate: currentDate
             });
           }
+          
+          // Actualizar estadísticas del usuario
+          await db.collection('user_activity_stats').updateOne(
+            { userId },
+            {
+              $set: {
+                lastActive: currentTime,
+                username,
+                branch: branch || 'No especificada'
+              },
+              $inc: {
+                totalInteractions: 1
+              }
+            },
+            { upsert: true }
+          );
           
           logger.info(`Acción registrada: ${username} - ${metadata.action}`, { 
             userId, 
@@ -356,6 +495,7 @@ async function updateUserActivityStats(db: any, userId: string, username: string
       totalActiveTime: 0,
       totalIdleTime: 0,
       totalInteractions: 0,
+      totalPageViews: 0,
       averageSessionDuration: 0,
       averageActiveTimePerSession: 0,
       lastActive: new Date(),

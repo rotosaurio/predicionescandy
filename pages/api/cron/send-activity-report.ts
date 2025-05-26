@@ -21,30 +21,51 @@ const logger = {
 /**
  * Este endpoint permite enviar el reporte de actividad de forma manual o
  * mediante un servicio externo de tareas programadas (cron) que lo invoque.
- * Útil para entornos serverless donde no se pueden ejecutar tareas cron nativas.
+ * 
+ * Funciona tanto con:
+ * 1. Vercel Cron Jobs (automáticamente autenticado)
+ * 2. Peticiones manuales con API key (para pruebas o envíos manuales)
+ * 3. Peticiones desde el frontend (con correo específico)
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Registrar inicio de la petición
+  logger.info(`Petición recibida: ${req.method}`, {
+    headers: {
+      'user-agent': req.headers['user-agent'],
+      'x-vercel-cron': req.headers['x-vercel-cron'],
+      'x-vercel-id': req.headers['x-vercel-id']
+    },
+    ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+  });
+  
   // Verificar el método HTTP
   if (req.method !== 'POST') {
+    logger.warn(`Método no permitido: ${req.method}`);
     return res.status(405).json({ success: false, message: 'Método no permitido' });
   }
   
   try {
-    // Se puede implementar autenticación mediante API key
-    const apiKey = req.headers['x-api-key'] || req.query.apiKey;
+    // Verificar si es una petición autenticada de Vercel Cron
+    const isVercelCron = req.headers['x-vercel-cron'] === 'true';
     
-    // Verificar API key si está configurada en variables de entorno
-    const expectedApiKey = process.env.CRON_API_KEY;
-    if (expectedApiKey && apiKey !== expectedApiKey) {
-      logger.warn('Intento de acceso a endpoint cron con API key inválida', {
-        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-        providedKey: apiKey ? 'Proporcionada pero incorrecta' : 'No proporcionada'
-      });
+    // Si no es de Vercel, verificar API key
+    if (!isVercelCron) {
+      const apiKey = req.headers['x-api-key'] || req.query.apiKey;
+      const expectedApiKey = process.env.CRON_API_KEY;
       
-      return res.status(401).json({
-        success: false,
-        message: 'Acceso no autorizado'
-      });
+      if (expectedApiKey && apiKey !== expectedApiKey) {
+        logger.warn('Intento de acceso no autorizado a endpoint cron', {
+          ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+          providedKey: apiKey ? 'Proporcionada pero incorrecta' : 'No proporcionada'
+        });
+        
+        return res.status(401).json({
+          success: false,
+          message: 'Acceso no autorizado'
+        });
+      }
+    } else {
+      logger.info('Petición autenticada desde Vercel Cron');
     }
     
     // Obtener el correo del cuerpo si está presente (para envíos manuales)
@@ -54,28 +75,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { db } = await connectToDatabase();
     const config = await db.collection('email_config').findOne({ isActive: true });
     
-    // Si no hay configuración activa y no se proporcionó un correo manual
     if (!config && !manualEmail) {
-      logger.info('Tarea cron ejecutada pero no hay configuración de correo activa ni correo manual');
+      logger.info('No hay configuración de correo activa ni correo manual');
       return res.status(200).json({
         success: false,
         message: 'No hay configuración de correo activa ni se proporcionó un correo'
       });
     }
     
-    // Determinar a qué correo enviar el reporte
+    // Determinar a qué correo(s) enviar el reporte
     const destinationEmail = manualEmail || config?.destinationEmail;
     
     // Validar formato de correo
     if (!destinationEmail || destinationEmail.trim() === '') {
-      logger.error('No se proporcionó ningún correo electrónico');
+      logger.error('No se proporcionó ningún correo electrónico válido');
       return res.status(400).json({
         success: false,
         message: 'No se proporcionó ningún correo electrónico'
       });
     }
     
-    // Si es un correo manual, validamos directamente
+    // Validar el formato del correo dependiendo de si es manual o de configuración
     if (manualEmail) {
       if (!isValidEmail(manualEmail)) {
         logger.error('Formato de correo electrónico inválido', { email: manualEmail });
@@ -84,9 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           message: 'El formato del correo electrónico es inválido'
         });
       }
-    }
-    // Si es un correo de configuración, pueden ser múltiples
-    else if (config?.destinationEmail) {
+    } else if (config?.destinationEmail) {
       // Verificar si hay múltiples destinatarios
       const emails = config.destinationEmail.includes(',') 
         ? config.destinationEmail.split(',')
@@ -106,7 +124,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Validar el formato de cada correo
       for (const email of emails) {
         if (!isValidEmail(email)) {
-          logger.error('Formato de correo electrónico inválido', { email });
+          logger.error('Formato de correo electrónico inválido en configuración', { email });
           return res.status(400).json({
             success: false,
             message: `El formato del correo electrónico "${email}" es inválido`
@@ -115,14 +133,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
     
-    logger.info('Ejecutando tarea de envío de reporte a través del endpoint cron', {
+    logger.info(`Generando reporte de actividad para ${isVercelCron ? 'cron automatizado' : 'solicitud manual'}`, {
       destinationEmail,
-      triggered: manualEmail ? 'manual-request' : 'config',
-      manualRequest: !!manualEmail
+      triggered: manualEmail ? 'manual-request' : (isVercelCron ? 'vercel-cron' : 'api-key'),
+      timestamp: new Date().toISOString()
     });
     
     // Generar reporte
+    const startTime = Date.now();
     const reportData = await generateActivityReport();
+    logger.info(`Reporte generado en ${Date.now() - startTime}ms`);
     
     // Si es un email manual, enviamos a un solo destinatario
     if (manualEmail) {
@@ -172,7 +192,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           details: {
             total: emails.length,
             success: successCount,
-            failed: failedEmails
+            failed: failedEmails,
+            reportDate: reportData.date
           }
         });
       } else {
@@ -181,7 +202,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     
   } catch (error) {
-    logger.error('Error al ejecutar tarea cron de envío de reporte', error);
+    logger.error('Error al ejecutar tarea cron de envío de reporte', error instanceof Error ? {
+      message: error.message,
+      stack: error.stack
+    } : error);
     
     return res.status(500).json({
       success: false,

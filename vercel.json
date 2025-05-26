@@ -9,5 +9,11 @@
     "env": {
       "NODE_ENV": "production"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/send-activity-report",
+      "schedule": "0 9 * * *"
+    }
+  ]
 } 

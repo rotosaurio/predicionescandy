@@ -37,16 +37,16 @@ export async function connectToDatabase() {
   });
   
   try {
-    const client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    const db = client.db(MONGODB_DB);
+  const client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  const db = client.db(MONGODB_DB);
 
-    // Almacenamos la conexión en caché
-    cachedClient = client;
-    cachedDb = db;
+  // Almacenamos la conexión en caché
+  cachedClient = client;
+  cachedDb = db;
 
     logMongo('INFO', 'Conexión a MongoDB establecida exitosamente');
-    return { client, db };
+  return { client, db };
   } catch (error) {
     logMongo('ERROR', 'Error al conectar con MongoDB', error);
     throw error;

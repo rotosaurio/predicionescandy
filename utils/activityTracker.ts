@@ -85,10 +85,10 @@ class ActivityTracker {
       
       // Configurar listeners de eventos
       if (typeof window !== 'undefined') {
-        window.addEventListener('mousemove', this.handleUserActivity);
+    window.addEventListener('mousemove', this.handleUserActivity);
         window.addEventListener('keydown', this.handleUserActivity);
         window.addEventListener('click', this.handleUserActivity);
-        window.addEventListener('scroll', this.handleUserActivity);
+    window.addEventListener('scroll', this.handleUserActivity);
         window.addEventListener('visibilitychange', this.handleVisibilityChange);
         
         // Comprobar inactividad periódicamente

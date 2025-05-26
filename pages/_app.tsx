@@ -80,7 +80,7 @@ function MyApp({ Component, pageProps }: AppProps) {
       fetch: typeof fetch !== 'undefined',
       sessionStorage: typeof sessionStorage !== 'undefined'
     });
-
+    
     // Iniciar seguimiento de actividad si hay usuario autenticado
     try {
       const user = getCurrentUser();
@@ -94,7 +94,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         activityTracker.startTracking();
         
         // Registrar vista inicial de página
-        if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
           activityTracker.recordPageView(window.location.pathname);
         }
       } else {
@@ -121,7 +121,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         }
       } catch (error) {
         logger.error('Error al limpiar seguimiento de actividad', error);
-      }
+    }
     };
   }, []);
 
@@ -129,8 +129,8 @@ function MyApp({ Component, pageProps }: AppProps) {
   useEffect(() => {
     const handleRouteChange = (url: string) => {
       try {
-        const activityTracker = getActivityTracker();
-        activityTracker.recordPageView(url);
+      const activityTracker = getActivityTracker();
+      activityTracker.recordPageView(url);
         
         logger.debug(`Navegación a: ${url}`);
         

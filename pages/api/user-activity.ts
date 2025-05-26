@@ -25,247 +25,315 @@ const logger = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, message: 'Método no permitido' });
-  }
-
-  try {
-    const { userId, username, branch, sessionId, activityType, pageViews, metadata } = req.body;
-
-    // Validar datos requeridos
-    if (!userId || !username || !activityType) {
-      return res.status(400).json({
+  // Manejar peticiones GET para obtener estadísticas de actividad
+  if (req.method === 'GET') {
+    try {
+      const { db } = await connectToDatabase();
+      const userId = req.query.userId as string;
+      
+      logger.info(`Obteniendo estadísticas de actividad${userId ? ` para usuario: ${userId}` : ' para todos los usuarios'}`);
+      
+      if (userId) {
+        // Obtener estadísticas para un usuario específico
+        const userStats = await db.collection('user_activity_stats').findOne({ userId });
+        
+        if (!userStats) {
+          logger.info(`No se encontraron estadísticas para el usuario: ${userId}`);
+          return res.status(404).json({
+            success: false,
+            message: 'No se encontraron estadísticas para este usuario'
+          });
+        }
+        
+        // Obtener sesiones recientes del usuario
+        const recentSessions = await db.collection('user_daily_sessions')
+          .find({ userId })
+          .sort({ sessionDate: -1 })
+          .limit(10)
+          .toArray();
+          
+        logger.info(`Estadísticas encontradas para usuario: ${userId}`, { 
+          totalSessions: userStats.totalSessions,
+          lastActive: userStats.lastActive
+        });
+        
+        return res.status(200).json({
+          success: true,
+          userStats,
+          recentSessions
+        });
+      } else {
+        // Obtener estadísticas para todos los usuarios
+        const stats = await db.collection('user_activity_stats')
+          .find({})
+          .sort({ lastActive: -1 })
+          .limit(100)
+          .toArray();
+          
+        logger.info(`Obtenidas estadísticas para ${stats.length} usuarios`);
+        
+        return res.status(200).json({
+          success: true,
+          stats
+        });
+      }
+    } catch (error) {
+      logger.error('Error al obtener estadísticas de actividad', error);
+      
+      return res.status(500).json({
         success: false,
-        message: 'Faltan datos requeridos: userId, username y activityType son obligatorios'
+        message: 'Error interno al obtener estadísticas de actividad',
+        error: error instanceof Error ? error.message : 'Error desconocido'
       });
     }
+  }
+  
+  // Manejar peticiones POST para registrar actividad
+  if (req.method === 'POST') {
+    try {
+      const { userId, username, branch, sessionId, activityType, pageViews, metadata } = req.body;
 
-    const { db } = await connectToDatabase();
-    
-    // Fecha actual formateada como YYYY-MM-DD
-    const currentDate = new Date().toISOString().split('T')[0];
-    
-    // Registrar actividad dependiendo del tipo
-    switch (activityType) {
-      case 'session_start':
-        // Iniciar nueva sesión
-        await db.collection('user_sessions').insertOne({
+      // Validar datos requeridos
+      if (!userId || !username || !activityType) {
+        return res.status(400).json({
+          success: false,
+          message: 'Faltan datos requeridos: userId, username y activityType son obligatorios'
+        });
+      }
+
+      const { db } = await connectToDatabase();
+      
+      // Fecha actual formateada como YYYY-MM-DD
+      const currentDate = new Date().toISOString().split('T')[0];
+      
+      // Registrar actividad dependiendo del tipo
+      switch (activityType) {
+        case 'session_start':
+          // Iniciar nueva sesión
+          await db.collection('user_sessions').insertOne({
           userId,
-          username,
-          branch: branch || 'No especificada',
-          sessionId,
-          startTime: new Date(),
-          isActive: true,
-          lastActivity: new Date(),
-          userAgent: req.headers['user-agent'],
-          ipAddress: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-          sessionDate: currentDate
-        });
-        
-        logger.info(`Sesión iniciada: ${username}`, { userId, sessionId, branch });
-        break;
-        
-      case 'session_end':
-        // Finalizar sesión
-        const session = await db.collection('user_sessions').findOne({
-          sessionId,
-          isActive: true
-        });
-        
-        if (session) {
-          const endTime = new Date();
-          const sessionDuration = endTime.getTime() - new Date(session.startTime).getTime();
+            username,
+            branch: branch || 'No especificada',
+            sessionId,
+            startTime: new Date(),
+            isActive: true,
+            lastActivity: new Date(),
+            userAgent: req.headers['user-agent'],
+            ipAddress: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+            sessionDate: currentDate
+          });
           
+          logger.info(`Sesión iniciada: ${username}`, { userId, sessionId, branch });
+          break;
+          
+        case 'session_end':
+          // Finalizar sesión
+          const session = await db.collection('user_sessions').findOne({
+            sessionId,
+            isActive: true
+          });
+          
+          if (session) {
+            const endTime = new Date();
+            const sessionDuration = endTime.getTime() - new Date(session.startTime).getTime();
+            
+            await db.collection('user_sessions').updateOne(
+              { sessionId, isActive: true },
+              { 
+                $set: {
+                  endTime,
+                  isActive: false,
+                  duration: sessionDuration,
+                  activityDetails: {
+                    pageViews: pageViews || [],
+                    lastPage: metadata?.currentPage || 'No especificada'
+                  }
+                }
+              }
+            );
+            
+            // Actualizar estadísticas diarias
+        await db.collection('user_daily_sessions').updateOne(
+              { 
+                userId, 
+                sessionDate: currentDate,
+                branch: branch || 'No especificada'
+              },
+              {
+                $inc: {
+                  sessionCount: 1,
+                  totalActiveTime: sessionDuration,
+                  pageViews: (pageViews && Array.isArray(pageViews)) ? pageViews.length : 0
+                },
+                $set: {
+                  endTime
+                },
+                $setOnInsert: {
+                  username,
+                  branch: branch || 'No especificada',
+                  startTime: session.startTime
+                }
+              },
+          { upsert: true }
+        );
+
+            logger.info(`Sesión finalizada: ${username}`, { 
+              userId, 
+              sessionId, 
+              duration: Math.floor(sessionDuration / 1000) 
+            });
+          } else {
+            logger.error(`No se encontró sesión activa: ${sessionId}`);
+          }
+          break;
+          
+        case 'heartbeat':
+          // Actualizar tiempo de actividad
           await db.collection('user_sessions').updateOne(
             { sessionId, isActive: true },
             { 
               $set: {
-                endTime,
-                isActive: false,
-                duration: sessionDuration,
-                activityDetails: {
-                  pageViews: pageViews || [],
-                  lastPage: metadata?.currentPage || 'No especificada'
-                }
-              }
+                lastActivity: new Date(),
+                'activityDetails.currentPage': metadata?.currentPage,
+                'activityDetails.isIdle': metadata?.isIdle || false
+              } 
             }
           );
           
-          // Actualizar estadísticas diarias
-          await db.collection('user_daily_sessions').updateOne(
-            { 
-              userId, 
-              sessionDate: currentDate,
-              branch: branch || 'No especificada'
-            },
+          // Actualizar estadísticas de usuario
+          await db.collection('user_activity_stats').updateOne(
+            { userId },
             {
-              $inc: {
-                sessionCount: 1,
-                totalActiveTime: sessionDuration,
-                pageViews: (pageViews && Array.isArray(pageViews)) ? pageViews.length : 0
-              },
               $set: {
-                endTime
-              },
-              $setOnInsert: {
+                lastActive: new Date(),
                 username,
-                branch: branch || 'No especificada',
-                startTime: session.startTime
+                branch: branch || 'No especificada'
+              },
+              $inc: {
+                heartbeatCount: 1
               }
             },
             { upsert: true }
           );
+          break;
           
-          logger.info(`Sesión finalizada: ${username}`, { 
-            userId, 
-            sessionId, 
-            duration: Math.floor(sessionDuration / 1000) 
-          });
-        } else {
-          logger.error(`No se encontró sesión activa: ${sessionId}`);
-        }
-        break;
-        
-      case 'heartbeat':
-        // Actualizar tiempo de actividad
-        await db.collection('user_sessions').updateOne(
-          { sessionId, isActive: true },
-          { 
-            $set: {
-              lastActivity: new Date(),
-              'activityDetails.currentPage': metadata?.currentPage,
-              'activityDetails.isIdle': metadata?.isIdle || false
-            } 
+        case 'page_view':
+          // Registrar vista de página
+          if (!metadata || !metadata.page) {
+            return res.status(400).json({
+              success: false,
+              message: 'Falta información de la página visitada'
+            });
           }
-        );
-        
-        // Actualizar estadísticas de usuario
-        await db.collection('user_activity_stats').updateOne(
-          { userId },
-          {
-            $set: {
-              lastActive: new Date(),
-              username,
-              branch: branch || 'No especificada'
-            },
-            $inc: {
-              heartbeatCount: 1
-            }
-          },
-          { upsert: true }
-        );
-        break;
-        
-      case 'page_view':
-        // Registrar vista de página
-        if (!metadata || !metadata.page) {
-          return res.status(400).json({
-            success: false,
-            message: 'Falta información de la página visitada'
-          });
-        }
-        
-        await db.collection('user_page_views').insertOne({
-          userId,
-          username,
-          branch: branch || 'No especificada',
-          sessionId,
-          timestamp: new Date(),
-          page: metadata.page,
-          referrer: metadata.referrer || '',
-          module: metadata.module || 'No especificado',
-          viewDate: currentDate
-        });
-        
-        // Actualizar estadísticas de módulo
-        if (metadata.module) {
-          await db.collection('module_usage_stats').updateOne(
-            { 
-              module: metadata.module,
-              date: currentDate
-            },
-            {
-              $inc: { 
-                viewCount: 1,
-                [`userCounts.${userId}`]: 1
-              }
-            },
-            { upsert: true }
-          );
-        }
-        
-        break;
-        
-      case 'user_action':
-        // Registrar acción específica (como exportar Excel)
-        if (!metadata || !metadata.action) {
-          return res.status(400).json({
-            success: false,
-            message: 'Falta información de la acción realizada'
-          });
-        }
-        
-        // Registrar en logs del sistema
-        await db.collection('system_log').insertOne({
-          timestamp: new Date(),
-          type: 'user_action',
-          user: {
-            userId,
-            username,
-            branch: branch || 'No especificada'
-          },
-          message: `${username} realizó: ${metadata.action}`,
-          details: {
-            action: metadata.action,
-            page: metadata.page || 'No especificada',
-            sessionId,
-            actionData: metadata.actionData || {}
-          },
-          logDate: currentDate
-        });
-        
-        // Si es una exportación, registrarla específicamente
-        if (metadata.action === 'export_excel' || metadata.action === 'download_report') {
-          await db.collection('user_exports').insertOne({
+          
+          await db.collection('user_page_views').insertOne({
             userId,
             username,
             branch: branch || 'No especificada',
+            sessionId,
             timestamp: new Date(),
-            exportType: metadata.action,
-            fileName: metadata.actionData?.fileName || 'No especificado',
-            filters: metadata.actionData?.filters || {},
-            exportDate: currentDate
+            page: metadata.page,
+            referrer: metadata.referrer || '',
+            module: metadata.module || 'No especificado',
+            viewDate: currentDate
           });
-        }
-        
-        logger.info(`Acción registrada: ${username} - ${metadata.action}`, { 
-          userId, 
-          branch, 
-          actionData: metadata.actionData
-        });
-        break;
-        
-      default:
-        return res.status(400).json({
-          success: false,
-          message: `Tipo de actividad no reconocido: ${activityType}`
-        });
+          
+          // Actualizar estadísticas de módulo
+          if (metadata.module) {
+            await db.collection('module_usage_stats').updateOne(
+              { 
+                module: metadata.module,
+                date: currentDate
+              },
+              {
+                $inc: { 
+                  viewCount: 1,
+                  [`userCounts.${userId}`]: 1
+                }
+              },
+              { upsert: true }
+            );
+          }
+          
+          break;
+          
+        case 'user_action':
+          // Registrar acción específica (como exportar Excel)
+          if (!metadata || !metadata.action) {
+            return res.status(400).json({
+              success: false,
+              message: 'Falta información de la acción realizada'
+            });
+          }
+          
+          // Registrar en logs del sistema
+          await db.collection('system_log').insertOne({
+            timestamp: new Date(),
+            type: 'user_action',
+            user: {
+              userId,
+              username,
+              branch: branch || 'No especificada'
+            },
+            message: `${username} realizó: ${metadata.action}`,
+            details: {
+              action: metadata.action,
+              page: metadata.page || 'No especificada',
+              sessionId,
+              actionData: metadata.actionData || {}
+            },
+            logDate: currentDate
+          });
+          
+          // Si es una exportación, registrarla específicamente
+          if (metadata.action === 'export_excel' || metadata.action === 'download_report') {
+            await db.collection('user_exports').insertOne({
+              userId,
+              username,
+              branch: branch || 'No especificada',
+              timestamp: new Date(),
+              exportType: metadata.action,
+              fileName: metadata.actionData?.fileName || 'No especificado',
+              filters: metadata.actionData?.filters || {},
+              exportDate: currentDate
+            });
+          }
+          
+          logger.info(`Acción registrada: ${username} - ${metadata.action}`, { 
+            userId, 
+            branch, 
+            actionData: metadata.actionData
+          });
+          break;
+          
+        default:
+          return res.status(400).json({
+            success: false,
+            message: `Tipo de actividad no reconocido: ${activityType}`
+          });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Actividad registrada correctamente'
+      });
+      
+    } catch (error) {
+      logger.error('Error al registrar actividad de usuario', error);
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Error interno al registrar actividad',
+        error: error instanceof Error ? error.message : 'Error desconocido'
+      });
     }
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Actividad registrada correctamente'
-    });
-    
-  } catch (error) {
-    logger.error('Error al registrar actividad de usuario', error);
-    
-    return res.status(500).json({
-      success: false,
-      message: 'Error interno al registrar actividad',
-      error: error instanceof Error ? error.message : 'Error desconocido'
-    });
   }
+  
+  // Si el método no es GET ni POST, devolver error
+  return res.status(405).json({ 
+    success: false, 
+    message: 'Método no permitido. Solo se aceptan peticiones GET y POST' 
+  });
 }
 
 // These collections store historical user activity:

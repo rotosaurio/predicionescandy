@@ -211,6 +211,56 @@ export const generateActivityReport = async (): Promise<any> => {
       branch.lastConnection = formatDate(branch.lastConnection);
     });
     
+    // Verificar si no hay datos de sucursales y agregar datos de la interfaz directamente
+    if (branchActivity.length === 0) {
+      // Consultar estadísticas de actividad de usuarios actuales
+      const userStats = await db.collection('user_activity_stats')
+        .find({})
+        .sort({ lastActive: -1 })
+        .toArray();
+        
+      // Agrupar por sucursal
+      const branchesByName: { [key: string]: any } = {};
+      userStats.forEach((user: any) => {
+        const branchName = user.branch || 'No especificada';
+        if (!branchesByName[branchName]) {
+          branchesByName[branchName] = {
+            name: branchName,
+            activeUsers: 0,
+            totalActiveTime: 0,
+            lastConnection: null
+          };
+        }
+        
+        branchesByName[branchName].activeUsers += 1;
+        branchesByName[branchName].totalActiveTime += user.totalActiveTime || 0;
+        
+        // Actualizar última conexión si este usuario tiene una más reciente
+        if (user.lastActive && (!branchesByName[branchName].lastConnection || 
+            new Date(user.lastActive) > new Date(branchesByName[branchName].lastConnection))) {
+          branchesByName[branchName].lastConnection = user.lastActive;
+        }
+      });
+      
+      // Convertir a array y formatear los valores
+      const additionalBranches = Object.values(branchesByName).map((branch: any) => {
+        return {
+          ...branch,
+          totalActiveTime: formatDuration(branch.totalActiveTime),
+          lastConnection: formatDate(branch.lastConnection),
+          actions: branchActions[branch.name] || {
+            exports: 0,
+            downloads: 0,
+            predictions: 0,
+            views: 0
+          }
+        };
+      });
+      
+      // Añadir sucursales adicionales
+      branchActivity.push(...additionalBranches);
+    }
+    
     // Consultar usuarios más activos
     const userActivity = await db.collection('user_activity_stats')
       .find({})

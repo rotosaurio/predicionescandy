@@ -85,14 +85,20 @@ class ActivityTracker {
       
       // Configurar listeners de eventos
       if (typeof window !== 'undefined') {
-    window.addEventListener('mousemove', this.handleUserActivity);
+        window.addEventListener('mousemove', this.handleUserActivity);
         window.addEventListener('keydown', this.handleUserActivity);
         window.addEventListener('click', this.handleUserActivity);
-    window.addEventListener('scroll', this.handleUserActivity);
+        window.addEventListener('scroll', this.handleUserActivity);
         window.addEventListener('visibilitychange', this.handleVisibilityChange);
         
         // Comprobar inactividad periódicamente
         this.activityCheckInterval = setInterval(() => this.checkActivity(), 60000); // cada minuto
+        
+        // Enviar heartbeats periódicos para mantener la sesión actualizada
+        this.heartbeatInterval = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL);
+        
+        // Enviar heartbeat inicial
+        this.sendHeartbeat();
       }
     } catch (error) {
       logger.error('Error al iniciar seguimiento de actividad', error);
@@ -108,6 +114,9 @@ class ActivityTracker {
     try {
       this.isTracking = false;
       
+      // Enviar un último heartbeat antes de detener
+      this.sendHeartbeat();
+      
       // Limpiar listeners de eventos
       if (typeof window !== 'undefined') {
         window.removeEventListener('mousemove', this.handleUserActivity);
@@ -117,10 +126,15 @@ class ActivityTracker {
         window.removeEventListener('visibilitychange', this.handleVisibilityChange);
       }
       
-      // Limpiar intervalo
+      // Limpiar intervalos
       if (this.activityCheckInterval) {
         clearInterval(this.activityCheckInterval);
         this.activityCheckInterval = null;
+      }
+      
+      if (this.heartbeatInterval) {
+        clearInterval(this.heartbeatInterval);
+        this.heartbeatInterval = null;
       }
       
       // Registrar fin de seguimiento
@@ -129,6 +143,9 @@ class ActivityTracker {
         sessionDuration: Math.floor(sessionDuration / 1000), 
         pageViews: this.pageViews.length 
       });
+      
+      // Intentar enviar evento de fin de sesión
+      this.sendSessionEnd();
       
       // Reiniciar contadores
       this.pageViews = [];
@@ -173,22 +190,168 @@ class ActivityTracker {
   }
   
   /**
+   * Enviar heartbeat para mantener sesión actualizada
+   */
+  private async sendHeartbeat(): Promise<void> {
+    try {
+      // Obtener usuario actual
+      const user = getCurrentUser();
+      if (!user) {
+        logger.debug('No hay usuario autenticado para enviar heartbeat');
+        return;
+      }
+      
+      const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+      const isIdle = (Date.now() - this.lastActivityTime) > this.idleThreshold;
+      
+      const heartbeatData = {
+        userId: user.id,
+        username: user.username,
+        branch: user.sucursal,
+        sessionId: this.state.sessionId,
+        activityType: 'heartbeat',
+        metadata: {
+          currentPage: currentPath,
+          isIdle,
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      // Asegurar que siempre usamos la fecha actual
+      this.state.sessionDate = new Date().toISOString().split('T')[0];
+      
+      logger.debug('Enviando heartbeat', { 
+        userId: user.id, 
+        page: currentPath,
+        isIdle,
+        sessionDate: this.state.sessionDate
+      });
+      
+      const response = await fetch('/api/user-activity', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(heartbeatData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error al enviar heartbeat: ${response.statusText}`);
+      }
+    } catch (error) {
+      logger.error('Error al enviar heartbeat', error);
+    }
+  }
+  
+  /**
+   * Enviar evento de fin de sesión
+   */
+  private async sendSessionEnd(): Promise<void> {
+    try {
+      // Obtener usuario actual
+      const user = getCurrentUser();
+      if (!user) {
+        logger.debug('No hay usuario autenticado para finalizar sesión');
+        return;
+      }
+      
+      const sessionEndData = {
+        userId: user.id,
+        username: user.username,
+        branch: user.sucursal,
+        sessionId: this.state.sessionId,
+        activityType: 'session_end',
+        pageViews: this.pageViews,
+        metadata: {
+          currentPage: typeof window !== 'undefined' ? window.location.pathname : '',
+          endTime: new Date().toISOString()
+        }
+      };
+      
+      logger.debug('Enviando fin de sesión', { 
+        userId: user.id,
+        sessionId: this.state.sessionId
+      });
+      
+      const response = await fetch('/api/user-activity', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(sessionEndData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error al finalizar sesión: ${response.statusText}`);
+      }
+    } catch (error) {
+      logger.error('Error al finalizar sesión', error);
+    }
+  }
+  
+  /**
    * Registrar vista de página
    */
   recordPageView(path: string): void {
-    if (!this.isTracking) return;
+    if (!this.isTracking) {
+      this.startTracking();
+    }
     
     try {
+      const timestamp = Date.now();
       this.pageViews.push({
         path,
-        timestamp: Date.now()
+        timestamp
       });
       
-      this.lastActivityTime = Date.now();
+      this.lastActivityTime = timestamp;
+      
+      // Obtener usuario actual para enviar evento
+      const user = getCurrentUser();
+      if (!user) {
+        logger.debug('No hay usuario autenticado para registrar vista de página');
+        return;
+      }
+      
       logger.debug('Vista de página registrada', { path });
+      
+      // Enviar evento de vista de página
+      fetch('/api/user-activity', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          username: user.username,
+          branch: user.sucursal,
+          sessionId: this.state.sessionId,
+          activityType: 'page_view',
+          metadata: {
+            page: path,
+            referrer: typeof document !== 'undefined' ? document.referrer : '',
+            module: this.getModuleFromPath(path),
+            timestamp: new Date().toISOString()
+          }
+        })
+      }).catch(error => {
+        logger.error('Error al registrar vista de página', error);
+      });
     } catch (error) {
       logger.error('Error al registrar vista de página', error);
     }
+  }
+  
+  /**
+   * Obtener módulo de la aplicación basado en la ruta
+   */
+  private getModuleFromPath(path: string): string {
+    if (path.startsWith('/admin')) return 'admin';
+    if (path.startsWith('/analista')) return 'analista';
+    if (path.startsWith('/enrique')) return 'advanced';
+    if (path.startsWith('/predictions')) return 'predictions';
+    if (path.startsWith('/sucursal')) return 'branch';
+    return 'general';
   }
 
   // Get current activity statistics

@@ -53,12 +53,15 @@ function normalizePredictionData(item: any, collectionName?: string): any {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { method } = req;
-  const { branch, date, limit = '10' } = req.query;
+  const { branch, date, limit = '10', page = '1', count = 'false' } = req.query;
   const recordLimit = parseInt(limit as string, 10) || 10;
+  const currentPage = parseInt(page as string, 10) || 1;
+  const skip = (currentPage - 1) * recordLimit;
+  const shouldCount = count === 'true';
 
   try {
     logApi('INFO', `Petición recibida: ${method}`, { 
-      params: { branch, date, limit },
+      params: { branch, date, limit, page, count },
       headers: {
         'user-agent': req.headers['user-agent']
       }
@@ -90,13 +93,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // GET - Obtener historial de predicciones (limitado)
     if (method === 'GET') {
       let query = {};
+      let totalCount = 0;
       
       // Si se especifica una sucursal, filtrar por ella
       if (branch && typeof branch === 'string') {
         query = { branch };
-        logApi('INFO', `Filtrando predicciones por sucursal`, { branch, limit: recordLimit });
+        logApi('INFO', `Filtrando predicciones por sucursal`, { branch, limit: recordLimit, page: currentPage });
       } else {
-        logApi('INFO', `Consultando todas las predicciones`, { limit: recordLimit });
+        logApi('INFO', `Consultando todas las predicciones`, { limit: recordLimit, page: currentPage });
       }
       
       // Verificar que la colección existe
@@ -118,13 +122,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           // Combinar datos de todas las colecciones de predicciones, limitando resultados
           let allPredictions: any[] = [];
+          let totalRecords = 0;
+          
+          // Obtener recuento total si se solicita
+          if (shouldCount) {
+            for (const colName of predictionCollections) {
+              const count = await db.collection(colName).countDocuments({});
+              totalRecords += count;
+            }
+            
+            if (branch && typeof branch === 'string') {
+              // Si hay filtro de sucursal, necesitamos obtener todos y luego filtrar para contar
+              const tempResults = [];
+              for (const colName of predictionCollections) {
+                const branchPredictions = await db.collection(colName).find({}).toArray();
+                const normalizedPredictions = branchPredictions.map((item: any) => 
+                  normalizePredictionData(item, colName)
+                );
+                tempResults.push(...normalizedPredictions);
+              }
+              totalCount = tempResults.filter((pred: any) => 
+                pred.branch.toLowerCase() === branch.toLowerCase()
+              ).length;
+            } else {
+              totalCount = totalRecords;
+            }
+            logApi('INFO', `Recuento total de predicciones`, { totalCount });
+          }
           
           for (const colName of predictionCollections) {
             // Solo obtenemos las más recientes de cada colección
             const branchPredictions = await db.collection(colName)
               .find({})
               .sort({ timestamp: -1 })
-              .limit(recordLimit)
               .toArray();
             
             // Normalizar los datos
@@ -135,15 +165,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             allPredictions = [...allPredictions, ...normalizedPredictions];
           }
           
-          // Ordenar todas las predicciones por fecha (descendente) y limitar el total
+          // Ordenar todas las predicciones por fecha (descendente)
           allPredictions.sort((a, b) => 
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
           );
-          
-          // Limitar al número total especificado
-          allPredictions = allPredictions.slice(0, recordLimit);
-          
-          logApi('INFO', `Recuperadas predicciones de colecciones individuales`, { count: allPredictions.length });
           
           // Si se especificó una sucursal, filtrar los resultados
           let filteredPredictions = allPredictions;
@@ -157,15 +182,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             });
           }
           
+          // Aplicar paginación a los resultados filtrados
+          const paginatedPredictions = filteredPredictions.slice(skip, skip + recordLimit);
+          
           return res.status(200).json({
             success: true,
-            history: filteredPredictions
+            history: paginatedPredictions,
+            pagination: {
+              page: currentPage,
+              limit: recordLimit,
+              total: shouldCount ? totalCount : undefined,
+              totalPages: shouldCount ? Math.ceil(totalCount / recordLimit) : undefined
+            }
           });
         } else {
           logApi('WARN', `No se encontraron colecciones de predicciones`);
           return res.status(200).json({
             success: true,
-            history: []
+            history: [],
+            pagination: {
+              page: currentPage,
+              limit: recordLimit,
+              total: 0,
+              totalPages: 0
+            }
           });
         }
       }
@@ -173,13 +213,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Consultar la colección principal de historial
       logApi('INFO', `Consultando colección predictions_history`, { 
         filter: JSON.stringify(query),
-        limit: recordLimit
+        limit: recordLimit,
+        page: currentPage,
+        skip
       });
+      
+      // Obtener el recuento total si se solicita
+      if (shouldCount) {
+        totalCount = await db.collection(historyCollection).countDocuments(query);
+        logApi('INFO', `Recuento total de predicciones`, { totalCount });
+      }
       
       const history = await db
         .collection(historyCollection)
         .find(query)
         .sort({ timestamp: -1 })
+        .skip(skip)
         .limit(recordLimit)
         .toArray();
       
@@ -190,7 +239,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       return res.status(200).json({
         success: true,
-        history: normalizedHistory
+        history: normalizedHistory,
+        pagination: {
+          page: currentPage,
+          limit: recordLimit,
+          total: shouldCount ? totalCount : undefined,
+          totalPages: shouldCount ? Math.ceil(totalCount / recordLimit) : undefined
+        }
       });
     }
     

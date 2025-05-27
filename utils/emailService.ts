@@ -127,11 +127,11 @@ export const sendActivityReport = async (
   `;
   
   // Agregar filas para cada sucursal
-  if (activityData.branches && activityData.branches.length > 0) {
+  if (activityData.branches && Array.isArray(activityData.branches) && activityData.branches.length > 0) {
     activityData.branches.forEach((branch: any) => {
       html += `
         <tr>
-          <td style="padding: 12px; border-bottom: 1px solid #eee;">${branch.name}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #eee;">${branch.name || 'No especificada'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.lastConnection || 'No disponible'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.totalActiveTime || '0h 0m'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.activeUsers || 0}</td>
@@ -155,32 +155,44 @@ export const sendActivityReport = async (
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
   `;
   
+  // Verificamos si hay sucursales con datos
+  console.log('Branches data:', JSON.stringify(activityData.branches || []));
+  
   // Detalles de cada sucursal
-  if (activityData.branches && activityData.branches.length > 0) {
+  if (activityData.branches && Array.isArray(activityData.branches) && activityData.branches.length > 0) {
     activityData.branches.forEach((branch: any) => {
+      // Asegurarse de que branch sea un objeto válido
+      if (!branch || typeof branch !== 'object') return;
+      
       html += `
         <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px;">
-          <h4 style="color: #333; margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;">${branch.name}</h4>
+          <h4 style="color: #333; margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;">${branch.name || 'No especificada'}</h4>
           <ul style="list-style: none; padding-left: 0; margin-bottom: 15px;">
             <li><strong>Usuarios activos:</strong> ${branch.activeUsers || 0}</li>
             <li><strong>Tiempo total activo:</strong> ${branch.totalActiveTime || '0h 0m'}</li>
             <li><strong>Última conexión:</strong> ${branch.lastConnection || 'No disponible'}</li>
-            <li><strong>Exportaciones Excel:</strong> ${branch.actions?.exports || 0}</li>
-            <li><strong>Descargas de reportes:</strong> ${branch.actions?.downloads || 0}</li>
-            <li><strong>Predicciones generadas:</strong> ${branch.actions?.predictions || 0}</li>
-            <li><strong>Vistas de predicciones:</strong> ${branch.actions?.views || 0}</li>
+            <li><strong>Exportaciones Excel:</strong> ${(branch.actions && branch.actions.exports) || 0}</li>
+            <li><strong>Descargas de reportes:</strong> ${(branch.actions && branch.actions.downloads) || 0}</li>
+            <li><strong>Predicciones generadas:</strong> ${(branch.actions && branch.actions.predictions) || 0}</li>
+            <li><strong>Vistas de predicciones:</strong> ${(branch.actions && branch.actions.views) || 0}</li>
           </ul>
           ${branch.recentActivity ? `
             <div style="background-color: #e9f5ff; padding: 10px; border-radius: 5px; margin-top: 10px;">
               <h5 style="margin-top: 0; color: #0066cc;">Última actividad:</h5>
-              <p style="margin: 5px 0;"><strong>Acción:</strong> ${branch.recentActivity.action}</p>
-              <p style="margin: 5px 0;"><strong>Usuario:</strong> ${branch.recentActivity.username}</p>
-              <p style="margin: 5px 0;"><strong>Hora:</strong> ${branch.recentActivity.timestamp}</p>
+              <p style="margin: 5px 0;"><strong>Acción:</strong> ${branch.recentActivity.action || 'No especificada'}</p>
+              <p style="margin: 5px 0;"><strong>Usuario:</strong> ${branch.recentActivity.username || 'No especificado'}</p>
+              <p style="margin: 5px 0;"><strong>Hora:</strong> ${branch.recentActivity.timestamp || 'No disponible'}</p>
             </div>
           ` : ''}
         </div>
       `;
     });
+  } else {
+    html += `
+      <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; text-align: center;">
+        <p style="color: #666;">No hay datos de actividad disponibles para ninguna sucursal.</p>
+      </div>
+    `;
   }
   
   html += `
@@ -201,9 +213,9 @@ export const sendActivityReport = async (
           <tbody>
       ${activityData.systemHealth.errors.map((error: any) => `
         <tr>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;">${error.message}</td>
-          <td style="padding: 10px; text-align: center; border-bottom: 1px solid #eee;">${error.component}</td>
-          <td style="padding: 10px; text-align: center; border-bottom: 1px solid #eee;">${error.timestamp}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #eee;">${error.message || 'Error no especificado'}</td>
+          <td style="padding: 10px; text-align: center; border-bottom: 1px solid #eee;">${error.component || 'No especificado'}</td>
+          <td style="padding: 10px; text-align: center; border-bottom: 1px solid #eee;">${error.timestamp || 'No disponible'}</td>
         </tr>
       `).join('')}
           </tbody>

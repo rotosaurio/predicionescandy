@@ -803,7 +803,7 @@ const SucursalPage: React.FC = () => {
       !productosEnTienda[p.nombre]
     );
 
-    // Construir los datos para el Excel
+    // Construir los datos para el Excel (solo con Clave y Unidad)
     const data = productosNoEnTienda.map(p => {
       const uniCompraProduct = findUniCompraProduct(p.nombre);
       if (uniCompraProduct && uniCompraProduct.CLAVE_ARTICULO) {
@@ -820,8 +820,8 @@ const SucursalPage: React.FC = () => {
       return null;
     }).filter(Boolean);
 
-    // Crear hoja y libro de Excel
-    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Articulo', 'Unidad'] });
+    // Crear hoja y libro de Excel (solo con las columnas Clave y Unidad)
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Unidad'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 
@@ -1059,7 +1059,7 @@ const SucursalPage: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Productos_${branchName.replace(/\s+/g, '_')}_${formatDateForDisplay(predictionData.date).replace(/\//g, '-')}.csv`);
+    link.setAttribute('download', `${branchName.toLowerCase().replace(/^sucursal\s+/i, '').trim().replace(/\s+/g, '_')}_${formatDateForDisplay(predictionData.date).replace(/\//g, '-')}.csv`);
     link.click();
     
     // Limpiar
@@ -1079,7 +1079,7 @@ const SucursalPage: React.FC = () => {
       !productosEnTienda[p.nombre]
     );
 
-    // Construir los datos para el Excel
+    // Construir los datos para el Excel (solo con Clave y Unidad)
     const data = productosNoEnTienda.map(p => {
       const uniCompraProduct = findUniCompraProduct(p.nombre);
       if (uniCompraProduct && uniCompraProduct.CLAVE_ARTICULO) {
@@ -1096,8 +1096,8 @@ const SucursalPage: React.FC = () => {
       return null;
     }).filter(Boolean);
 
-    // Crear hoja y libro de Excel
-    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Articulo', 'Unidad'] });
+    // Crear hoja y libro de Excel (solo con las columnas Clave y Unidad)
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Unidad'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 

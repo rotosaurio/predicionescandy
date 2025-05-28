@@ -821,7 +821,7 @@ const SucursalPage: React.FC = () => {
     }).filter(Boolean);
 
     // Crear hoja y libro de Excel (solo con las columnas Clave y Unidad)
-    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Unidad'] });
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Articulo', 'Unidad'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 
@@ -1097,7 +1097,7 @@ const SucursalPage: React.FC = () => {
     }).filter(Boolean);
 
     // Crear hoja y libro de Excel (solo con las columnas Clave y Unidad)
-    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Unidad'] });
+    const worksheet = xlsxUtils.json_to_sheet(data, { header: ['Clave', 'Articulo', 'Unidad'] });
     const workbook = xlsxUtils.book_new();
     xlsxUtils.book_append_sheet(workbook, worksheet, 'Productos');
 

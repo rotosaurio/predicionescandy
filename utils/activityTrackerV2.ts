@@ -30,7 +30,17 @@ interface ActivityAction {
   duration?: number;
 }
 
-class ActivityTrackerV2 {
+// Interface para los métodos públicos del ActivityTracker
+interface IActivityTrackerV2 {
+  startTracking(page?: string): void;
+  stopTracking(): void;
+  recordAction(actionType: string, metadata?: any): void;
+  recordPageView(page: string): void;
+  recordExportAction(fileName: string, actionData?: any): void;
+  getSessionStats(): any;
+}
+
+class ActivityTrackerV2 implements IActivityTrackerV2 {
   private session: ActivitySessionData | null = null;
   private pageVisibilityInterval: NodeJS.Timeout | null = null;
   private sessionId: string;
@@ -540,7 +550,7 @@ class ActivityTrackerV2 {
 // Singleton para usar en toda la aplicación
 let activityTrackerInstance: ActivityTrackerV2 | null = null;
 
-export const getActivityTrackerV2 = (): ActivityTrackerV2 => {
+export const getActivityTrackerV2 = (): IActivityTrackerV2 => {
   if (typeof window === 'undefined') {
     // Versión del servidor (mock)
     return {
@@ -550,7 +560,7 @@ export const getActivityTrackerV2 = (): ActivityTrackerV2 => {
       recordPageView: () => {},
       recordExportAction: () => {},
       getSessionStats: () => null
-    } as ActivityTrackerV2;
+    };
   }
   
   if (!activityTrackerInstance) {
@@ -558,4 +568,4 @@ export const getActivityTrackerV2 = (): ActivityTrackerV2 => {
   }
   
   return activityTrackerInstance;
-}; 
+};

@@ -143,7 +143,7 @@ export const generateActivityReport = async (): Promise<any> => {
     
     // Crear un mapa de sucursales desde las sesiones activas
     const branchMap = new Map();
-    activeSessions.forEach(session => {
+    activeSessions.forEach((session: any) => {
       // Verificar explícitamente que la actividad está dentro del rango de 24 horas
       if (new Date(session.lastActivity) >= startDate && new Date(session.lastActivity) <= endDate) {
         const branchName = session.branch || 'No especificada';
@@ -165,7 +165,7 @@ export const generateActivityReport = async (): Promise<any> => {
     });
     
     // Incorporar los datos de interacciones al mapa de sucursales
-    dailyInteractions.forEach(interaction => {
+    dailyInteractions.forEach((interaction: any) => {
       const branchName = interaction.name || 'No especificada';
       if (!branchMap.has(branchName)) {
         branchMap.set(branchName, {
@@ -184,7 +184,7 @@ export const generateActivityReport = async (): Promise<any> => {
     });
     
     // Convertir mapa a array
-    const additionalBranches = Array.from(branchMap.values()).map(branch => ({
+    const additionalBranches = Array.from(branchMap.values()).map((branch: any) => ({
       name: branch.name,
       totalActiveTime: branch.totalActiveTime || 0,
       activeUsers: branch.activeUsers?.size || 0, // No usamos uniqueUsersCount
@@ -285,21 +285,37 @@ export const generateActivityReport = async (): Promise<any> => {
     
     // Combinar todas las sucursales únicas de ambas fuentes
     const allBranchNames = new Set([
-      ...branchActivity.map(branch => branch.name),
-      ...additionalBranches.map(branch => branch.name),
+      ...branchActivity.map((branch: any) => branch.name),
+      ...additionalBranches.map((branch: any) => branch.name),
       ...Object.keys(branchActions)
     ]);
     
     // Crear lista de sucursales combinadas con datos completos
-    const combinedBranches = Array.from(allBranchNames).map(branchName => {
+    const combinedBranches = Array.from(allBranchNames).map((branchName: any) => {
       // Buscar en branchActivity (datos de user_daily_sessions de las últimas 24 horas)
-      const activityData = branchActivity.find(b => b.name === branchName);
+      const activityData = branchActivity.find((b: any) => b.name === branchName);
       
       // Buscar en additional branches (datos de user_sessions de las últimas 24 horas)
       const additionalData = additionalBranches.find(b => b.name === branchName);
       
       // Combinar datos solo de las últimas 24 horas
-      const branch = {
+      const branch: {
+        name: any;
+        totalActiveTime: number;
+        activeUsers: number;
+        lastConnection: any;
+        actions: {
+          exports: number;
+          downloads: number;
+          predictions: number;
+          views: number;
+        };
+        recentActivity?: {
+          action: string;
+          username: string;
+          timestamp: string;
+        };
+      } = {
         name: branchName,
         // Sumamos los tiempos activos de ambas fuentes, que ya están filtrados por las últimas 24 horas
         totalActiveTime: (activityData?.totalActiveTime || 0) + (additionalData?.totalActiveTime || 0),

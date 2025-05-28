@@ -81,11 +81,8 @@ export const generateActivityReport = async (): Promise<any> => {
       .aggregate([
         { 
           $match: { 
-            // Obtener registros con fecha de sesión reciente o última actividad en las últimas 24 horas
-            $or: [
-              { sessionDate: { $gte: yesterdayStr } },
-              { lastActivity: { $gte: startDate } }
-            ]
+            // Filtrar estrictamente para asegurar que solo obtenemos actividad en las últimas 24 horas
+            lastActivity: { $gte: startDate, $lte: endDate }
           } 
         },
         { $group: {
@@ -113,7 +110,8 @@ export const generateActivityReport = async (): Promise<any> => {
       .aggregate([
         { 
           $match: { 
-            timestamp: { $gte: startDate },
+            // Filtrar estrictamente por timestamp entre startDate y endDate
+            timestamp: { $gte: startDate, $lte: endDate },
             type: 'user_action'
           } 
         },
@@ -146,20 +144,23 @@ export const generateActivityReport = async (): Promise<any> => {
     // Crear un mapa de sucursales desde las sesiones activas
     const branchMap = new Map();
     activeSessions.forEach(session => {
-      const branchName = session.branch || 'No especificada';
-      if (!branchMap.has(branchName)) {
-        branchMap.set(branchName, {
-          name: branchName,
-          totalActiveTime: 0,
-          activeUsers: new Set(),
-          lastConnection: session.lastActivity
-        });
-      } else {
-        const branch = branchMap.get(branchName);
-        if (new Date(session.lastActivity) > new Date(branch.lastConnection)) {
-          branch.lastConnection = session.lastActivity;
+      // Verificar explícitamente que la actividad está dentro del rango de 24 horas
+      if (new Date(session.lastActivity) >= startDate && new Date(session.lastActivity) <= endDate) {
+        const branchName = session.branch || 'No especificada';
+        if (!branchMap.has(branchName)) {
+          branchMap.set(branchName, {
+            name: branchName,
+            totalActiveTime: 0,
+            activeUsers: new Set(),
+            lastConnection: session.lastActivity
+          });
+        } else {
+          const branch = branchMap.get(branchName);
+          if (new Date(session.lastActivity) > new Date(branch.lastConnection)) {
+            branch.lastConnection = session.lastActivity;
+          }
+          branch.activeUsers.add(session.userId);
         }
-        branch.activeUsers.add(session.userId);
       }
     });
     
@@ -177,10 +178,8 @@ export const generateActivityReport = async (): Promise<any> => {
       } else {
         const branch = branchMap.get(branchName);
         branch.totalInteractions = interaction.totalInteractions;
-        // Añadir usuarios únicos que interactuaron
-        if (interaction.uniqueUsers > 0) {
-          branch.activeUsers = new Set([...branch.activeUsers, ...interaction.users]);
-        }
+        // No intentamos acceder a interaction.users ni manipular la lista de usuarios
+        // solo registramos que hay interacciones
       }
     });
     
@@ -188,8 +187,9 @@ export const generateActivityReport = async (): Promise<any> => {
     const additionalBranches = Array.from(branchMap.values()).map(branch => ({
       name: branch.name,
       totalActiveTime: branch.totalActiveTime || 0,
-      activeUsers: branch.activeUsers.size,
-      lastConnection: branch.lastConnection
+      activeUsers: branch.activeUsers?.size || 0, // No usamos uniqueUsersCount
+      lastConnection: branch.lastConnection,
+      totalInteractions: branch.totalInteractions || 0
     }));
     
     // 3. Obtener exportaciones y otras acciones de las últimas 24 horas EXCLUSIVAMENTE
@@ -213,39 +213,45 @@ export const generateActivityReport = async (): Promise<any> => {
     
     // Procesar logs de sistema
     userActions.forEach((action: any) => {
-      const branch = action?.user?.branch || 'No especificada';
-      if (!branchActions[branch]) {
-        branchActions[branch] = {
-          exports: 0,
-          downloads: 0,
-          predictions: 0,
-          views: 0
-        };
-      }
-      
-      if (action.details?.action === 'export_excel') {
-        branchActions[branch].exports += 1;
-      } else if (action.details?.action === 'download_report') {
-        branchActions[branch].downloads += 1;
-      } else if (action.details?.action === 'generate_prediction') {
-        branchActions[branch].predictions += 1;
-      } else if (action.details?.action === 'view_prediction') {
-        branchActions[branch].views += 1;
+      // Verificar explícitamente que la acción está dentro del período de 24 horas
+      if (new Date(action.timestamp) >= startDate && new Date(action.timestamp) <= endDate) {
+        const branch = action?.user?.branch || 'No especificada';
+        if (!branchActions[branch]) {
+          branchActions[branch] = {
+            exports: 0,
+            downloads: 0,
+            predictions: 0,
+            views: 0
+          };
+        }
+        
+        if (action.details?.action === 'export_excel') {
+          branchActions[branch].exports += 1;
+        } else if (action.details?.action === 'download_report') {
+          branchActions[branch].downloads += 1;
+        } else if (action.details?.action === 'generate_prediction') {
+          branchActions[branch].predictions += 1;
+        } else if (action.details?.action === 'view_prediction') {
+          branchActions[branch].views += 1;
+        }
       }
     });
     
     // Procesar logs de exportaciones (pueden contener datos adicionales)
     exportLogs.forEach((export_: any) => {
-      const branch = export_?.branch || 'No especificada';
-      if (!branchActions[branch]) {
-        branchActions[branch] = {
-          exports: 0,
-          downloads: 0,
-          predictions: 0,
-          views: 0
-        };
+      // Verificar explícitamente que la exportación está dentro del período de 24 horas
+      if (new Date(export_.timestamp) >= startDate && new Date(export_.timestamp) <= endDate) {
+        const branch = export_?.branch || 'No especificada';
+        if (!branchActions[branch]) {
+          branchActions[branch] = {
+            exports: 0,
+            downloads: 0,
+            predictions: 0,
+            views: 0
+          };
+        }
+        branchActions[branch].exports += 1;
       }
-      branchActions[branch].exports += 1;
     });
     
     // Obtener acciones más recientes para cada sucursal (SOLO últimas 24 horas)
@@ -311,11 +317,14 @@ export const generateActivityReport = async (): Promise<any> => {
       // Añadir última acción si existe
       const recentAction = recentActions.find((a: any) => a.branch === branchName);
       if (recentAction) {
-        branch.recentActivity = {
-          action: recentAction.action,
-          username: recentAction.username,
-          timestamp: formatDate(recentAction.timestamp)
-        };
+        // Verificar que la última acción está dentro del período de 24 horas
+        if (new Date(recentAction.timestamp) >= startDate && new Date(recentAction.timestamp) <= endDate) {
+          branch.recentActivity = {
+            action: recentAction.action,
+            username: recentAction.username,
+            timestamp: formatDate(recentAction.timestamp)
+          };
+        }
       }
       
       return branch;
@@ -333,10 +342,8 @@ export const generateActivityReport = async (): Promise<any> => {
       .aggregate([
         {
           $match: {
-            $or: [
-              { sessionDate: { $gte: yesterdayStr } },
-              { lastActivity: { $gte: startDate } }
-            ]
+            // Filtrar estrictamente por actividad en las últimas 24 horas
+            lastActivity: { $gte: startDate, $lte: endDate }
           }
         },
         {
@@ -370,7 +377,7 @@ export const generateActivityReport = async (): Promise<any> => {
     // Obtener total de predicciones generadas
     const predictionsCount = await db.collection('predictions_history')
       .countDocuments({
-        timestamp: { $gte: startDate }
+        timestamp: { $gte: startDate, $lte: endDate } // Añadir límite superior explícito
       });
     
     // Obtener errores del sistema para incluir en el reporte (SOLO últimas 24 horas)

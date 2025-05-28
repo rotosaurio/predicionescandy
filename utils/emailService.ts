@@ -137,7 +137,6 @@ export const sendActivityReport = async (
             <th style="padding: 12px; text-align: left; border-bottom: 1px solid #ddd;">Sucursal</th>
             <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Última Conexión</th>
             <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Tiempo Activo Total</th>
-            <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Usuarios Activos</th>
             <th style="padding: 12px; text-align: center; border-bottom: 1px solid #ddd;">Exportaciones</th>
           </tr>
         </thead>
@@ -157,15 +156,14 @@ export const sendActivityReport = async (
           <td style="padding: 12px; border-bottom: 1px solid #eee;">${branch.name || 'No especificada'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.lastConnection || 'No disponible'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.totalActiveTime || '0h 0m'}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.activeUsers || 0}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee; font-weight: ${(branch.actions?.exports > 0) ? 'bold' : 'normal'};">${branch.actions?.exports || 0}</td>
+          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee; font-weight: ${(branch.actions?.exports > 0) ? 'bold' : 'normal'}; color: ${(branch.actions?.exports > 0) ? '#0066cc' : '#666'};">${(branch.actions?.exports > 0) ? 'Sí' : 'No'}</td>
         </tr>
       `;
     });
   } else {
     html += `
       <tr>
-        <td colspan="5" style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">No hay datos disponibles para ninguna sucursal</td>
+        <td colspan="4" style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">No hay datos disponibles para ninguna sucursal</td>
       </tr>
     `;
   }
@@ -196,13 +194,12 @@ export const sendActivityReport = async (
         <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px;">
           <h4 style="color: #333; margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;">${branch.name || 'No especificada'}</h4>
           <ul style="list-style: none; padding-left: 0; margin-bottom: 15px;">
-            <li><strong>Usuarios activos:</strong> ${branch.activeUsers || 0}</li>
             <li><strong>Tiempo total activo:</strong> ${branch.totalActiveTime || '0h 0m'}</li>
             <li><strong>Última conexión:</strong> ${branch.lastConnection || 'No disponible'}</li>
-            <li style="${(branch.actions && branch.actions.exports > 0) ? 'font-weight: bold; color: #0066cc;' : ''}"><strong>Exportaciones Excel:</strong> ${(branch.actions && branch.actions.exports) || 0}</li>
-            <li><strong>Descargas de reportes:</strong> ${(branch.actions && branch.actions.downloads) || 0}</li>
-            <li><strong>Predicciones generadas:</strong> ${(branch.actions && branch.actions.predictions) || 0}</li>
-            <li><strong>Vistas de predicciones:</strong> ${(branch.actions && branch.actions.views) || 0}</li>
+            <li style="${(branch.actions && branch.actions.exports > 0) ? 'font-weight: bold; color: #0066cc;' : ''}"><strong>Exportaciones Excel:</strong> ${(branch.actions && branch.actions.exports > 0) ? 'Sí' : 'No'}</li>
+            ${(branch.actions && branch.actions.downloads > 0) ? `<li><strong>Descargas de reportes:</strong> ${branch.actions.downloads}</li>` : ''}
+            ${(branch.actions && branch.actions.predictions > 0) ? `<li><strong>Predicciones generadas:</strong> ${branch.actions.predictions}</li>` : ''}
+            ${(branch.actions && branch.actions.views > 0) ? `<li><strong>Vistas de predicciones:</strong> ${branch.actions.views}</li>` : ''}
           </ul>
           ${branch.recentActivity ? `
             <div style="background-color: #e9f5ff; padding: 10px; border-radius: 5px; margin-top: 10px;">

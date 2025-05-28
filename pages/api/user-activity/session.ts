@@ -38,6 +38,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const currentTime = new Date();
 
+    // Asegurar un tiempo mínimo de actividad por cada actualización de sesión
+    const MIN_ACTIVITY_TIME = 1000; // 1 segundo mínimo de actividad
+    const normalizedActiveTime = activeTime > 0 ? Math.max(MIN_ACTIVITY_TIME, activeTime) : activeTime;
+
     // Acciones disponibles: start_session, update_session, end_session
     switch (action) {
       case 'start_session': {
@@ -94,7 +98,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               currentPage: page || 'No especificada'
             },
             $inc: {
-              activeTime: activeTime
+              activeTime: normalizedActiveTime
             }
           }
         );
@@ -111,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               lastActivity: currentTime
             },
             $inc: {
-              totalActiveTime: activeTime
+              totalActiveTime: normalizedActiveTime
             }
           },
           { upsert: true }
@@ -134,7 +138,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               isActive: false
             },
             $inc: {
-              activeTime: activeTime
+              activeTime: normalizedActiveTime
             }
           }
         );
@@ -152,7 +156,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               endTime: currentTime
             },
             $inc: {
-              totalActiveTime: activeTime
+              totalActiveTime: normalizedActiveTime
             }
           },
           { upsert: true }
@@ -168,7 +172,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               lastActive: currentTime
             },
             $inc: {
-              totalActiveTime: activeTime,
+              totalActiveTime: normalizedActiveTime,
               totalSessions: 1
             },
             $addToSet: {

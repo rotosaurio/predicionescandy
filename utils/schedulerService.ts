@@ -52,7 +52,8 @@ export const timeToCronExpression = (time: string): string => {
 };
 
 /**
- * Genera el reporte de actividad de usuarios
+ * Genera el reporte de actividad de usuarios SOLO para las últimas 24 horas
+ * Este reporte NO incluye datos históricos acumulados
  */
 export const generateActivityReport = async (): Promise<any> => {
   try {
@@ -71,7 +72,7 @@ export const generateActivityReport = async (): Promise<any> => {
     const endDateStr = endDate.toISOString();
     const yesterdayStr = startDate.toISOString().split('T')[0]; // Solo para compatibilidad
 
-    logger.info(`Período del reporte: ${startDateStr} a ${endDateStr}`);
+    logger.info(`Período del reporte: ${startDateStr} a ${endDateStr} (SOLO últimas 24 horas)`);
     
     // Buscar actividad en todas las colecciones relevantes para las últimas 24 horas
     
@@ -106,10 +107,39 @@ export const generateActivityReport = async (): Promise<any> => {
       ])
       .toArray();
     
-    // 2. Obtener todas las sucursales activas de user_sessions para asegurar capturar todas
+    // Asegurarse de incluir también las interacciones diarias aunque el tiempo activo sea 0
+    // Consultar registros de interacciones en la última ventana de 24 horas
+    const dailyInteractions = await db.collection('system_log')
+      .aggregate([
+        { 
+          $match: { 
+            timestamp: { $gte: startDate },
+            type: 'user_action'
+          } 
+        },
+        { 
+          $group: {
+            _id: '$user.branch',
+            totalInteractions: { $sum: 1 },
+            users: { $addToSet: '$user.userId' }
+          }
+        },
+        { 
+          $project: {
+            _id: 0,
+            name: '$_id',
+            totalInteractions: 1,
+            uniqueUsers: { $size: '$users' }
+          }
+        }
+      ])
+      .toArray();
+    
+    // Obtener todas las sucursales activas de user_sessions para asegurar capturar todas
+    // SOLO de las últimas 24 horas
     const activeSessions = await db.collection('user_sessions')
       .find({
-        lastActivity: { $gte: startDate }
+        lastActivity: { $gte: startDate, $lte: endDate } // Filtro explícito para el rango de 24 horas
       })
       .toArray();
     
@@ -133,6 +163,27 @@ export const generateActivityReport = async (): Promise<any> => {
       }
     });
     
+    // Incorporar los datos de interacciones al mapa de sucursales
+    dailyInteractions.forEach(interaction => {
+      const branchName = interaction.name || 'No especificada';
+      if (!branchMap.has(branchName)) {
+        branchMap.set(branchName, {
+          name: branchName,
+          totalActiveTime: 0,
+          activeUsers: new Set(),
+          lastConnection: new Date(),
+          totalInteractions: interaction.totalInteractions
+        });
+      } else {
+        const branch = branchMap.get(branchName);
+        branch.totalInteractions = interaction.totalInteractions;
+        // Añadir usuarios únicos que interactuaron
+        if (interaction.uniqueUsers > 0) {
+          branch.activeUsers = new Set([...branch.activeUsers, ...interaction.users]);
+        }
+      }
+    });
+    
     // Convertir mapa a array
     const additionalBranches = Array.from(branchMap.values()).map(branch => ({
       name: branch.name,
@@ -141,19 +192,19 @@ export const generateActivityReport = async (): Promise<any> => {
       lastConnection: branch.lastConnection
     }));
     
-    // 3. Obtener exportaciones y otras acciones de las últimas 24 horas
+    // 3. Obtener exportaciones y otras acciones de las últimas 24 horas EXCLUSIVAMENTE
     const userActions = await db.collection('system_log')
       .find({
         type: 'user_action',
         'details.action': { $in: ['export_excel', 'download_report', 'generate_prediction', 'view_prediction'] },
-        timestamp: { $gte: startDate }
+        timestamp: { $gte: startDate, $lte: endDate } // Filtro explícito para el rango de 24 horas
       })
       .toArray();
     
-    // 4. Obtener logs de exportaciones específicos
+    // 4. Obtener logs de exportaciones específicos SOLO de las últimas 24 horas
     const exportLogs = await db.collection('user_exports')
       .find({
-        timestamp: { $gte: startDate }
+        timestamp: { $gte: startDate, $lte: endDate } // Filtro explícito para el rango de 24 horas
       })
       .toArray();
     
@@ -197,12 +248,12 @@ export const generateActivityReport = async (): Promise<any> => {
       branchActions[branch].exports += 1;
     });
     
-    // Obtener acciones más recientes para cada sucursal
+    // Obtener acciones más recientes para cada sucursal (SOLO últimas 24 horas)
     const recentActions = await db.collection('system_log')
       .aggregate([
         {
           $match: {
-            timestamp: { $gte: startDate }
+            timestamp: { $gte: startDate, $lte: endDate } // Filtro explícito para el rango de 24 horas
           }
         },
         {
@@ -235,18 +286,20 @@ export const generateActivityReport = async (): Promise<any> => {
     
     // Crear lista de sucursales combinadas con datos completos
     const combinedBranches = Array.from(allBranchNames).map(branchName => {
-      // Buscar en branchActivity
+      // Buscar en branchActivity (datos de user_daily_sessions de las últimas 24 horas)
       const activityData = branchActivity.find(b => b.name === branchName);
       
-      // Buscar en additional branches
+      // Buscar en additional branches (datos de user_sessions de las últimas 24 horas)
       const additionalData = additionalBranches.find(b => b.name === branchName);
       
-      // Combinar datos
+      // Combinar datos solo de las últimas 24 horas
       const branch = {
         name: branchName,
+        // Sumamos los tiempos activos de ambas fuentes, que ya están filtrados por las últimas 24 horas
         totalActiveTime: (activityData?.totalActiveTime || 0) + (additionalData?.totalActiveTime || 0),
         activeUsers: activityData?.activeUsers || additionalData?.activeUsers || 0,
         lastConnection: activityData?.lastConnection || additionalData?.lastConnection || null,
+        // Acciones de las últimas 24 horas
         actions: branchActions[branchName] || {
           exports: 0,
           downloads: 0,
@@ -268,7 +321,7 @@ export const generateActivityReport = async (): Promise<any> => {
       return branch;
     });
     
-    // Formatear tiempos activos para todas las sucursales
+    // Formatear tiempos activos para todas las sucursales (solo últimas 24 horas)
     const formattedBranches = combinedBranches.map(branch => ({
       ...branch,
       totalActiveTime: formatDuration(branch.totalActiveTime),
@@ -276,23 +329,42 @@ export const generateActivityReport = async (): Promise<any> => {
     }));
     
     // Consultar usuarios más activos
-    const userActivity = await db.collection('user_activity_stats')
-      .find({
-        lastActive: { $gte: startDate }
-      })
-      .sort({ 'lastActive': -1 })
-      .limit(10)
+    const userActivity = await db.collection('user_daily_sessions')
+      .aggregate([
+        {
+          $match: {
+            $or: [
+              { sessionDate: { $gte: yesterdayStr } },
+              { lastActivity: { $gte: startDate } }
+            ]
+          }
+        },
+        {
+          $group: {
+            _id: '$userId',
+            username: { $first: '$username' },
+            branch: { $first: '$branch' },
+            totalActiveTime: { $sum: '$totalActiveTime' },
+            totalIdleTime: { $sum: '$totalIdleTime' },
+            totalInteractions: { $sum: '$interactionCount' },
+            lastActive: { $max: '$lastActivity' },
+            sections: { $addToSet: '$currentPage' }
+          }
+        },
+        { $sort: { lastActive: -1 } },
+        { $limit: 10 }
+      ])
       .toArray();
     
-    // Formatear datos de usuarios
+    // Formatear datos de usuarios (solo para las últimas 24 horas)
     const users = userActivity.map((user: any) => ({
       username: user.username,
       branch: user.branch,
-      activeTime: formatDuration(user.totalActiveTime),
-      lastActivity: formatDate(user.lastActive),
+      activeTime: formatDuration(user.totalActiveTime || 0),
+      lastActivity: formatDate(user.lastActive || new Date()),
       sections: user.sections || [],
-      totalSessions: user.totalSessions || 0,
-      totalPageViews: user.totalPageViews || 0
+      totalSessions: 1, // Solo contamos 1 día de actividad
+      totalPageViews: user.totalInteractions || 0
     }));
     
     // Obtener total de predicciones generadas
@@ -301,11 +373,11 @@ export const generateActivityReport = async (): Promise<any> => {
         timestamp: { $gte: startDate }
       });
     
-    // Obtener errores del sistema para incluir en el reporte
+    // Obtener errores del sistema para incluir en el reporte (SOLO últimas 24 horas)
     const systemErrors = await db.collection('system_log')
       .find({
         type: 'error',
-        timestamp: { $gte: startDate }
+        timestamp: { $gte: startDate, $lte: endDate } // Filtro explícito para el rango de 24 horas
       })
       .limit(10)
       .toArray();
@@ -327,6 +399,7 @@ export const generateActivityReport = async (): Promise<any> => {
         end: endDateStr,
         hours: 24
       },
+      reportType: "last_24_hours_only", // Indicador explícito del tipo de reporte
       branches: formattedBranches,
       users,
       predictions: {

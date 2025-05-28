@@ -5,6 +5,7 @@ const IDLE_TIMEOUT = 180000; // 3 minutos de inactividad = usuario idle
 const MIN_ACTIVITY_RECORD_INTERVAL = 10000; // 10 segundos mínimo entre registros
 const PAGE_VISIBILITY_CHECK_INTERVAL = 1000; // Revisar visibilidad cada segundo
 const SESSION_SYNC_INTERVAL = 60000; // Sincronizar sesión cada 1 minuto
+const MIN_ACTIVITY_TIME_PER_INTERACTION = 1000; // Asignar al menos 1 segundo por cada interacción
 
 interface ActivitySessionData {
   userId: string;
@@ -130,6 +131,12 @@ class ActivityTrackerV2 {
     if (this.session.idleSince) {
       this.session.idleSince = undefined;
     }
+
+    // Asegurar que cada interacción registre al menos un tiempo mínimo de actividad
+    // Esto garantiza que las interacciones rápidas sean contadas
+    const timeToAdd = Math.max(MIN_ACTIVITY_TIME_PER_INTERACTION, metadata.duration || 0);
+    this.session.activeTimeAccumulated += timeToAdd;
+    this.accumulatedActiveTimeSinceSync += timeToAdd;
 
     // Guardar acción en la lista de la sesión
     this.session.actions.push(action);

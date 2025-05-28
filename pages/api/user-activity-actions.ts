@@ -38,7 +38,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const currentTime = new Date();
 
     // Calcular duración de la acción (si se proporciona)
-    let actionDuration = metadata.duration || null;
+    // Asegurar un tiempo mínimo de 1 segundo por interacción para evitar tiempos de 0s
+    const MIN_ACTIVITY_TIME = 1000; // 1 segundo mínimo por interacción
+    let actionDuration = Math.max(MIN_ACTIVITY_TIME, metadata.duration || MIN_ACTIVITY_TIME);
 
     // Registrar la acción en system_log
     await db.collection('system_log').insertOne({

@@ -56,18 +56,37 @@ export const timeToCronExpression = (time: string): string => {
  */
 export const generateActivityReport = async (): Promise<any> => {
   try {
-    logger.info('Generando reporte de actividad de usuarios');
+    logger.info('Generando reporte de actividad de usuarios para las últimas 24 horas');
     const { db } = await connectToDatabase();
     
-    // Obtener la fecha de ayer
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    // Obtener fecha y hora actual para marcar el final del período
+    const endDate = new Date();
     
-    // Consultar actividad por sucursal
+    // Calcular fecha 24 horas atrás para el inicio del período
+    const startDate = new Date();
+    startDate.setHours(startDate.getHours() - 24);
+    
+    // Formatear para logging
+    const startDateStr = startDate.toISOString();
+    const endDateStr = endDate.toISOString();
+    const yesterdayStr = startDate.toISOString().split('T')[0]; // Solo para compatibilidad
+
+    logger.info(`Período del reporte: ${startDateStr} a ${endDateStr}`);
+    
+    // Buscar actividad en todas las colecciones relevantes para las últimas 24 horas
+    
+    // 1. Consultar actividad en user_daily_sessions para todas las sucursales
     const branchActivity = await db.collection('user_daily_sessions')
       .aggregate([
-        { $match: { sessionDate: yesterdayStr } },
+        { 
+          $match: { 
+            // Obtener registros con fecha de sesión reciente o última actividad en las últimas 24 horas
+            $or: [
+              { sessionDate: { $gte: yesterdayStr } },
+              { lastActivity: { $gte: startDate } }
+            ]
+          } 
+        },
         { $group: {
             _id: '$branch',
             totalActiveTime: { $sum: '$totalActiveTime' },
@@ -87,20 +106,61 @@ export const generateActivityReport = async (): Promise<any> => {
       ])
       .toArray();
     
-    // Obtener exportaciones de Excel y otras acciones importantes
+    // 2. Obtener todas las sucursales activas de user_sessions para asegurar capturar todas
+    const activeSessions = await db.collection('user_sessions')
+      .find({
+        lastActivity: { $gte: startDate }
+      })
+      .toArray();
+    
+    // Crear un mapa de sucursales desde las sesiones activas
+    const branchMap = new Map();
+    activeSessions.forEach(session => {
+      const branchName = session.branch || 'No especificada';
+      if (!branchMap.has(branchName)) {
+        branchMap.set(branchName, {
+          name: branchName,
+          totalActiveTime: 0,
+          activeUsers: new Set(),
+          lastConnection: session.lastActivity
+        });
+      } else {
+        const branch = branchMap.get(branchName);
+        if (new Date(session.lastActivity) > new Date(branch.lastConnection)) {
+          branch.lastConnection = session.lastActivity;
+        }
+        branch.activeUsers.add(session.userId);
+      }
+    });
+    
+    // Convertir mapa a array
+    const additionalBranches = Array.from(branchMap.values()).map(branch => ({
+      name: branch.name,
+      totalActiveTime: branch.totalActiveTime || 0,
+      activeUsers: branch.activeUsers.size,
+      lastConnection: branch.lastConnection
+    }));
+    
+    // 3. Obtener exportaciones y otras acciones de las últimas 24 horas
     const userActions = await db.collection('system_log')
       .find({
         type: 'user_action',
         'details.action': { $in: ['export_excel', 'download_report', 'generate_prediction', 'view_prediction'] },
-        timestamp: { 
-          $gte: new Date(yesterdayStr + 'T00:00:00.000Z'),
-          $lt: new Date(yesterdayStr + 'T23:59:59.999Z')
-        }
+        timestamp: { $gte: startDate }
+      })
+      .toArray();
+    
+    // 4. Obtener logs de exportaciones específicos
+    const exportLogs = await db.collection('user_exports')
+      .find({
+        timestamp: { $gte: startDate }
       })
       .toArray();
     
     // Agrupar acciones por sucursal
     const branchActions: { [key: string]: { exports: number, downloads: number, predictions: number, views: number } } = {};
+    
+    // Procesar logs de sistema
     userActions.forEach((action: any) => {
       const branch = action?.user?.branch || 'No especificada';
       if (!branchActions[branch]) {
@@ -123,15 +183,26 @@ export const generateActivityReport = async (): Promise<any> => {
       }
     });
     
+    // Procesar logs de exportaciones (pueden contener datos adicionales)
+    exportLogs.forEach((export_: any) => {
+      const branch = export_?.branch || 'No especificada';
+      if (!branchActions[branch]) {
+        branchActions[branch] = {
+          exports: 0,
+          downloads: 0,
+          predictions: 0,
+          views: 0
+        };
+      }
+      branchActions[branch].exports += 1;
+    });
+    
     // Obtener acciones más recientes para cada sucursal
     const recentActions = await db.collection('system_log')
       .aggregate([
         {
           $match: {
-            timestamp: { 
-              $gte: new Date(yesterdayStr + 'T00:00:00.000Z'),
-              $lt: new Date(yesterdayStr + 'T23:59:59.999Z')
-            }
+            timestamp: { $gte: startDate }
           }
         },
         {
@@ -155,50 +226,37 @@ export const generateActivityReport = async (): Promise<any> => {
       ])
       .toArray();
     
-    // Obtener estadísticas de uso por módulo
-    const moduleUsage = await db.collection('user_activity_stats')
-      .aggregate([
-        {
-          $match: {
-            lastActive: { 
-              $gte: new Date(yesterdayStr + 'T00:00:00.000Z'),
-              $lt: new Date(yesterdayStr + 'T23:59:59.999Z')
-            }
-          }
-        },
-        {
-          $group: {
-            _id: '$module',
-            count: { $sum: 1 },
-            totalTime: { $sum: '$timeSpent' }
-          }
-        },
-        {
-          $project: {
-            _id: 0,
-            module: '$_id',
-            count: 1,
-            avgTime: { $divide: ['$totalTime', '$count'] }
-          }
-        },
-        {
-          $sort: { count: -1 }
-        }
-      ])
-      .toArray();
+    // Combinar todas las sucursales únicas de ambas fuentes
+    const allBranchNames = new Set([
+      ...branchActivity.map(branch => branch.name),
+      ...additionalBranches.map(branch => branch.name),
+      ...Object.keys(branchActions)
+    ]);
     
-    // Formatear tiempos activos
-    branchActivity.forEach((branch: any) => {
-      // Añadir acciones a cada sucursal
-      branch.actions = branchActions[branch.name] || {
-        exports: 0,
-        downloads: 0,
-        predictions: 0,
-        views: 0
+    // Crear lista de sucursales combinadas con datos completos
+    const combinedBranches = Array.from(allBranchNames).map(branchName => {
+      // Buscar en branchActivity
+      const activityData = branchActivity.find(b => b.name === branchName);
+      
+      // Buscar en additional branches
+      const additionalData = additionalBranches.find(b => b.name === branchName);
+      
+      // Combinar datos
+      const branch = {
+        name: branchName,
+        totalActiveTime: (activityData?.totalActiveTime || 0) + (additionalData?.totalActiveTime || 0),
+        activeUsers: activityData?.activeUsers || additionalData?.activeUsers || 0,
+        lastConnection: activityData?.lastConnection || additionalData?.lastConnection || null,
+        actions: branchActions[branchName] || {
+          exports: 0,
+          downloads: 0,
+          predictions: 0,
+          views: 0
+        }
       };
       
       // Añadir última acción si existe
-      const recentAction = recentActions.find((a: any) => a.branch === branch.name);
+      const recentAction = recentActions.find((a: any) => a.branch === branchName);
       if (recentAction) {
         branch.recentActivity = {
           action: recentAction.action,
@@ -207,63 +265,21 @@ export const generateActivityReport = async (): Promise<any> => {
         };
       }
       
-      branch.totalActiveTime = formatDuration(branch.totalActiveTime);
-      branch.lastConnection = formatDate(branch.lastConnection);
+      return branch;
     });
     
-    // Verificar si no hay datos de sucursales y agregar datos de la interfaz directamente
-    if (branchActivity.length === 0) {
-      // Consultar estadísticas de actividad de usuarios actuales
-      const userStats = await db.collection('user_activity_stats')
-        .find({})
-        .sort({ lastActive: -1 })
-        .toArray();
-        
-      // Agrupar por sucursal
-      const branchesByName: { [key: string]: any } = {};
-      userStats.forEach((user: any) => {
-        const branchName = user.branch || 'No especificada';
-        if (!branchesByName[branchName]) {
-          branchesByName[branchName] = {
-            name: branchName,
-            activeUsers: 0,
-            totalActiveTime: 0,
-            lastConnection: null
-          };
-        }
-        
-        branchesByName[branchName].activeUsers += 1;
-        branchesByName[branchName].totalActiveTime += user.totalActiveTime || 0;
-        
-        // Actualizar última conexión si este usuario tiene una más reciente
-        if (user.lastActive && (!branchesByName[branchName].lastConnection || 
-            new Date(user.lastActive) > new Date(branchesByName[branchName].lastConnection))) {
-          branchesByName[branchName].lastConnection = user.lastActive;
-        }
-      });
-      
-      // Convertir a array y formatear los valores
-      const additionalBranches = Object.values(branchesByName).map((branch: any) => {
-        return {
-          ...branch,
-          totalActiveTime: formatDuration(branch.totalActiveTime),
-          lastConnection: formatDate(branch.lastConnection),
-          actions: branchActions[branch.name] || {
-            exports: 0,
-            downloads: 0,
-            predictions: 0,
-            views: 0
-          }
-        };
-      });
-      
-      // Añadir sucursales adicionales
-      branchActivity.push(...additionalBranches);
-    }
+    // Formatear tiempos activos para todas las sucursales
+    const formattedBranches = combinedBranches.map(branch => ({
+      ...branch,
+      totalActiveTime: formatDuration(branch.totalActiveTime),
+      lastConnection: formatDate(branch.lastConnection)
+    }));
     
     // Consultar usuarios más activos
     const userActivity = await db.collection('user_activity_stats')
-      .find({})
+      .find({
+        lastActive: { $gte: startDate }
+      })
       .sort({ 'lastActive': -1 })
       .limit(10)
       .toArray();
@@ -282,20 +298,14 @@ export const generateActivityReport = async (): Promise<any> => {
     // Obtener total de predicciones generadas
     const predictionsCount = await db.collection('predictions_history')
       .countDocuments({
-        timestamp: { 
-          $gte: new Date(yesterdayStr + 'T00:00:00.000Z'),
-          $lt: new Date(yesterdayStr + 'T23:59:59.999Z')
-        }
+        timestamp: { $gte: startDate }
       });
     
     // Obtener errores del sistema para incluir en el reporte
     const systemErrors = await db.collection('system_log')
       .find({
         type: 'error',
-        timestamp: { 
-          $gte: new Date(yesterdayStr + 'T00:00:00.000Z'),
-          $lt: new Date(yesterdayStr + 'T23:59:59.999Z')
-        }
+        timestamp: { $gte: startDate }
       })
       .limit(10)
       .toArray();
@@ -307,12 +317,18 @@ export const generateActivityReport = async (): Promise<any> => {
       timestamp: formatDate(error.timestamp)
     }));
     
+    logger.info(`Reporte generado: ${formattedBranches.length} sucursales, ${users.length} usuarios, ${predictionsCount} predicciones`);
+    
     return {
       generatedAt: new Date().toISOString(),
       date: yesterdayStr,
-      branches: branchActivity,
+      reportPeriod: {
+        start: startDateStr,
+        end: endDateStr,
+        hours: 24
+      },
+      branches: formattedBranches,
       users,
-      moduleUsage,
       predictions: {
         total: predictionsCount
       },
@@ -468,13 +484,13 @@ export const initScheduler = async (): Promise<void> => {
 
 // Funciones auxiliares de formato
 function formatDuration(ms: number): string {
-  if (!ms) return '0h 0m';
+  if (!ms) return '0h 0m 0s';
   
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   
-  return `${hours}h ${minutes % 60}m`;
+  return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
 }
 
 function formatDate(date: Date | string | null): string {

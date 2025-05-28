@@ -11,6 +11,7 @@ import { getDisplayBranchName } from '../../utils/branchMapping';
 import { useAppStore } from '../../utils/store';
 import StatusIndicator from '../../components/StatusIndicator';
 import { getActivityTracker } from '../../utils/activityTracker';
+import { getActivityTrackerV2 } from '../../utils/activityTrackerV2'; // Importar el nuevo rastreador
 
 // Add imports for export functionality
 import { utils as xlsxUtils, write, writeFile } from 'xlsx';
@@ -300,6 +301,12 @@ const SucursalPage: React.FC = () => {
 
     // Start activity tracking when the component mounts
     if (typeof window !== 'undefined') {
+      // Usar el nuevo rastreador de actividad V2 que maneja mejor la detección de inactividad
+      const activityTrackerV2 = getActivityTrackerV2();
+      activityTrackerV2.startTracking();
+      activityTrackerV2.recordPageView(`Branch: ${id}`);
+      
+      // También usar el rastreador anterior por compatibilidad mientras se migra completamente
       const activityTracker = getActivityTracker();
       activityTracker.startTracking();
       activityTracker.recordPageView(`Branch: ${id}`);
@@ -465,6 +472,10 @@ const SucursalPage: React.FC = () => {
     // Stop activity tracking when the component unmounts
     return () => {
       if (typeof window !== 'undefined') {
+        // Detener ambos rastreadores
+        const activityTrackerV2 = getActivityTrackerV2();
+        activityTrackerV2.stopTracking();
+        
         const activityTracker = getActivityTracker();
         activityTracker.stopTracking();
       }
@@ -829,6 +840,29 @@ const SucursalPage: React.FC = () => {
     link.click();
     URL.revokeObjectURL(url);
     setMostrarExportarCSV(false);
+
+    // Registrar la acción de exportación en ambos trackers de actividad
+    if (typeof window !== 'undefined') {
+      // Registrar en el nuevo tracker V2
+      const activityTrackerV2 = getActivityTrackerV2();
+      activityTrackerV2.recordExportAction(fileName, {
+        tipo: 'productos',
+        sucursal: branchName,
+        fecha: predictionData.date,
+        productos: data.length,
+        timestampExport: new Date().toISOString()
+      });
+      
+      // Mantener compatibilidad con el tracker original
+      const activityTracker = getActivityTracker();
+      activityTracker.recordExportAction(fileName, {
+        tipo: 'productos',
+        sucursal: branchName,
+        fecha: predictionData.date,
+        productos: data.length,
+        timestampExport: new Date().toISOString()
+      });
+    }
   };
 
   // Function to export data to PDF
@@ -1082,6 +1116,29 @@ const SucursalPage: React.FC = () => {
     link.click();
     URL.revokeObjectURL(url);
     setMostrarExportarCSV(false);
+
+    // Registrar la acción de exportación en ambos trackers de actividad
+    if (typeof window !== 'undefined') {
+      // Registrar en el nuevo tracker V2
+      const activityTrackerV2 = getActivityTrackerV2();
+      activityTrackerV2.recordExportAction(fileName, {
+        tipo: 'inventario_tienda',
+        sucursal: branchName,
+        fecha: predictionData.date,
+        productos: data.length,
+        timestampExport: new Date().toISOString()
+      });
+      
+      // Mantener compatibilidad con el tracker original
+      const activityTracker = getActivityTracker();
+      activityTracker.recordExportAction(fileName, {
+        tipo: 'inventario_tienda',
+        sucursal: branchName,
+        fecha: predictionData.date,
+        productos: data.length,
+        timestampExport: new Date().toISOString()
+      });
+    }
   };
 
   // Helper function to format date consistently throughout the app

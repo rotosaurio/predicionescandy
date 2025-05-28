@@ -227,19 +227,49 @@ class ActivityTracker {
         sessionDate: this.state.sessionDate
       });
       
-      const response = await fetch('/api/user-activity', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(heartbeatData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Error al enviar heartbeat: ${response.statusText}`);
+      // Implementar sistema de reintentos (máximo 2 intentos)
+      let attempts = 0;
+      const maxAttempts = 2;
+      let success = false;
+
+      while (attempts < maxAttempts && !success) {
+        try {
+          attempts++;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos de timeout
+          
+          const response = await fetch('/api/user-activity', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(heartbeatData),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          // Considerar como éxito cualquier respuesta HTTP 2xx
+          if (response.ok) {
+            success = true;
+          } else {
+            const errorData = await response.json().catch(() => ({ message: response.statusText }));
+            throw new Error(`Error en la respuesta: ${response.status} - ${errorData.message || response.statusText}`);
+          }
+        } catch (fetchError) {
+          if (attempts >= maxAttempts) {
+            // En el último intento, registrar el error pero no lanzar excepción
+            logger.error(`Error al enviar heartbeat (intento ${attempts}/${maxAttempts}):`, fetchError);
+          } else {
+            // Esperar antes de reintentar (250ms * número de intento)
+            await new Promise(resolve => setTimeout(resolve, 250 * attempts));
+            logger.debug(`Reintentando heartbeat (intento ${attempts}/${maxAttempts})...`);
+          }
+        }
       }
     } catch (error) {
-      logger.error('Error al enviar heartbeat', error);
+      // Capturar cualquier error pero no interrumpir la aplicación
+      logger.error('Error al procesar heartbeat:', error);
     }
   }
   
@@ -315,30 +345,23 @@ class ActivityTracker {
       
       logger.debug('Vista de página registrada', { path });
       
-      // Enviar evento de vista de página
-      fetch('/api/user-activity', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          userId: user.id,
-          username: user.username,
-          branch: user.sucursal,
-          sessionId: this.state.sessionId,
-          activityType: 'page_view',
-          metadata: {
-            page: path,
-            referrer: typeof document !== 'undefined' ? document.referrer : '',
-            module: this.getModuleFromPath(path),
-            timestamp: new Date().toISOString()
-          }
-        })
-      }).catch(error => {
-        logger.error('Error al registrar vista de página', error);
-      });
+      // Enviar evento de vista de página con sistema de reintentos
+      this.sendActivityData({
+        userId: user.id,
+        username: user.username,
+        branch: user.sucursal,
+        sessionId: this.state.sessionId,
+        activityType: 'page_view',
+        metadata: {
+          page: path,
+          referrer: typeof document !== 'undefined' ? document.referrer : '',
+          module: this.getModuleFromPath(path),
+          timestamp: new Date().toISOString()
+        }
+      }, 'vista de página');
     } catch (error) {
-      logger.error('Error al registrar vista de página', error);
+      // Capturar cualquier error pero no interrumpir la aplicación
+      logger.error('Error al registrar vista de página:', error);
     }
   }
   
@@ -352,6 +375,98 @@ class ActivityTracker {
     if (path.startsWith('/predictions')) return 'predictions';
     if (path.startsWith('/sucursal')) return 'branch';
     return 'general';
+  }
+
+  /**
+   * Registrar acción de exportación a Excel
+   */
+  recordExportAction(fileName: string, additionalData: any = {}): void {
+    if (!this.isTracking) {
+      this.startTracking();
+    }
+    
+    try {
+      const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+      
+      // Obtener usuario actual
+      const user = getCurrentUser();
+      if (!user) {
+        logger.debug('No hay usuario autenticado para registrar exportación');
+        return;
+      }
+      
+      logger.debug('Registrando exportación a Excel', { 
+        userId: user.id,
+        fileName,
+        path: currentPath
+      });
+      
+      // Enviar evento de acción de usuario con sistema de reintentos
+      this.sendActivityData({
+        userId: user.id,
+        username: user.username,
+        branch: user.sucursal,
+        sessionId: this.state.sessionId,
+        activityType: 'user_action',
+        metadata: {
+          action: 'export_excel',
+          page: currentPath,
+          module: this.getModuleFromPath(currentPath),
+          timestamp: new Date().toISOString(),
+          actionData: {
+            fileName,
+            source: 'inventario_tienda',
+            ...additionalData
+          }
+        }
+      }, 'exportación a Excel');
+    } catch (error) {
+      // Capturar cualquier error pero no interrumpir la aplicación
+      logger.error('Error al registrar exportación a Excel:', error);
+    }
+  }
+
+  /**
+   * Método genérico para enviar datos de actividad con reintentos
+   */
+  private async sendActivityData(data: any, activityDescription: string): Promise<void> {
+    let attempts = 0;
+    const maxAttempts = 2;
+    let success = false;
+
+    while (attempts < maxAttempts && !success) {
+      try {
+        attempts++;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos de timeout
+        
+        const response = await fetch('/api/user-activity', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          success = true;
+          logger.debug(`Actividad "${activityDescription}" registrada con éxito`);
+        } else {
+          const errorData = await response.json().catch(() => ({ message: response.statusText }));
+          throw new Error(`Error en la respuesta: ${response.status} - ${errorData.message || response.statusText}`);
+        }
+      } catch (fetchError) {
+        if (attempts >= maxAttempts) {
+          logger.error(`Error al registrar ${activityDescription} (intento ${attempts}/${maxAttempts}):`, fetchError);
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 250 * attempts));
+          logger.debug(`Reintentando registro de ${activityDescription} (intento ${attempts}/${maxAttempts})...`);
+        }
+      }
+    }
   }
 
   // Get current activity statistics

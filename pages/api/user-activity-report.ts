@@ -23,54 +23,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
     
-    let startDate;
-    let endDate = new Date(); // Default end date is current date
-    let groupBy = '%Y-%m-%d'; // Default to group by day
-    
-    // Determine date range based on period or custom dates
-    if (period === 'custom' && customStartDate) {
-      startDate = new Date(customStartDate as string);
-      if (customEndDate) {
-        endDate = new Date(customEndDate as string);
-        // Set to end of day
-        endDate.setHours(23, 59, 59, 999);
-      }
-    } else {
-      // Use predefined periods
-      switch (period) {
-        case 'week':
-          startDate = subDays(new Date(), 7);
-          break;
-        case 'month':
-          startDate = subMonths(new Date(), 1);
-          break;
-        case 'quarter':
-          startDate = subMonths(new Date(), 3);
-          break;
-        case 'year':
-          startDate = subMonths(new Date(), 12);
-          groupBy = '%Y-%m'; // Group by month for yearly reports
-          break;
-        default:
-          startDate = subMonths(new Date(), 1);
-      }
-    }
+    // Modificación: Siempre usar las últimas 24 horas para el reporte
+    // independientemente del período solicitado
+    const endDate = new Date(); // Fecha actual
+    const startDate = subDays(new Date(), 1); // 24 horas atrás
     
     // Format dates as ISO strings with just the date part
     const formattedStartDate = format(startDate, 'yyyy-MM-dd');
     const formattedEndDate = format(endDate, 'yyyy-MM-dd');
     
-    // Build query with date range
-    const query: any = {
-      sessionDate: { 
-        $gte: formattedStartDate
-      }
-    };
+    console.log(`Generando reporte de actividad para las últimas 24 horas: ${formattedStartDate} a ${formattedEndDate}`);
     
-    // Add end date to query if it's not today
-    if (formattedEndDate !== format(new Date(), 'yyyy-MM-dd')) {
-      query.sessionDate.$lte = formattedEndDate;
-    }
+    // Build query with date range for the last 24 hours
+    const query: any = {};
+    
+    // Para capturas actividades de las últimas 24 horas exactas, usamos timestamp en lugar de sessionDate
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    query.$or = [
+      // Buscar en sesiones diarias por fecha
+      {
+        sessionDate: { $gte: formattedStartDate },
+        // Si las fechas son iguales, usar hora
+        ...(formattedStartDate === formattedEndDate ? 
+          { startTime: { $gte: yesterday.toISOString() } } : {})
+      },
+      // Buscar en logs específicos por timestamp
+      {
+        timestamp: { $gte: yesterday }
+      }
+    ];
     
     // Add userId filter if provided
     if (userId) {
@@ -114,11 +97,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
       .toArray();
     
+    // Obtener los logs de exportaciones de Excel (user_exports) de las últimas 24 horas
+    const exportLogs = await db.collection('user_exports')
+      .find({
+        timestamp: { $gte: yesterday }
+      })
+      .toArray();
+    
+    // Obtener logs del sistema para acciones específicas
+    const systemLogs = await db.collection('system_log')
+      .find({
+        timestamp: { $gte: yesterday },
+        'details.action': { $in: ['export_excel', 'download_report'] }
+      })
+      .toArray();
+    
     // Combine results 
     const allSessions = [...activeSessions, ...archivedSessions];
     
     // Group by user and date or month
-    const result = groupSessionsByDateAndUser(allSessions, groupBy === '%Y-%m');
+    const result = groupSessionsByDateAndUser(allSessions, false);
     
     // Get list of unique branches in the result
     const uniqueBranches = new Set<string>();
@@ -128,12 +126,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     return res.status(200).json({
       success: true,
-      period,
-      startDate: formattedStartDate,
-      endDate: formattedEndDate,
+      period: 'last24h', // Siempre reportamos últimas 24 horas
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
       branch: branch || null,
       branches: Array.from(uniqueBranches),
-      data: result
+      data: result,
+      exportLogs,
+      systemLogs
     });
     
   } catch (error) {

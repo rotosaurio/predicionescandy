@@ -88,9 +88,27 @@ export const sendActivityReport = async (
 ): Promise<boolean> => {
   const date = new Date();
   const formattedDate = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
-  const reportDate = activityData.date ? activityData.date.split('-').reverse().join('/') : formattedDate;
   
-  const subject = `Reporte de Actividad del Sistema - ${reportDate}`;
+  // Si hay información del período del reporte, usarla para el título
+  let reportPeriodTitle = '';
+  if (activityData.reportPeriod) {
+    const startDate = new Date(activityData.reportPeriod.start);
+    const endDate = new Date(activityData.reportPeriod.end);
+    const formatSimpleDate = (d: Date) => `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+    const formatTime = (d: Date) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    
+    // Si es del mismo día, mostrar solo un día con horas, sino mostrar rango completo
+    if (formatSimpleDate(startDate) === formatSimpleDate(endDate)) {
+      reportPeriodTitle = `${formatSimpleDate(startDate)} (${formatTime(startDate)} - ${formatTime(endDate)})`;
+    } else {
+      reportPeriodTitle = `${formatSimpleDate(startDate)} ${formatTime(startDate)} - ${formatSimpleDate(endDate)} ${formatTime(endDate)}`;
+    }
+  } else {
+    // Formato anterior para compatibilidad
+    reportPeriodTitle = activityData.date ? activityData.date.split('-').reverse().join('/') : formattedDate;
+  }
+  
+  const subject = `Reporte de Actividad del Sistema - ${reportPeriodTitle}`;
   
   // Generar el contenido HTML del correo
   let html = `
@@ -99,11 +117,11 @@ export const sendActivityReport = async (
         Reporte de Actividad del Sistema
       </h1>
       <p style="color: #666; text-align: center; font-size: 16px; margin-bottom: 30px;">
-        Fecha del reporte: ${reportDate}
+        Período del reporte: ${reportPeriodTitle}
       </p>
       
       <div style="margin-bottom: 30px; background-color: #f9f9f9; padding: 15px; border-radius: 8px; border-left: 4px solid #4a6cf7;">
-        <h3 style="color: #333; margin-top: 0;">Resumen del Día</h3>
+        <h3 style="color: #333; margin-top: 0;">Resumen del Período</h3>
         <ul style="color: #555;">
           <li><strong>Sucursales activas:</strong> ${activityData.branches?.length || 0}</li>
           <li><strong>Usuarios activos:</strong> ${activityData.users?.length || 0}</li>
@@ -128,14 +146,19 @@ export const sendActivityReport = async (
   
   // Agregar filas para cada sucursal
   if (activityData.branches && Array.isArray(activityData.branches) && activityData.branches.length > 0) {
-    activityData.branches.forEach((branch: any) => {
+    // Ordenar sucursales por número de exportaciones (descendente)
+    const sortedBranches = [...activityData.branches].sort((a, b) => 
+      ((b.actions && b.actions.exports) || 0) - ((a.actions && a.actions.exports) || 0)
+    );
+    
+    sortedBranches.forEach((branch: any) => {
       html += `
         <tr>
           <td style="padding: 12px; border-bottom: 1px solid #eee;">${branch.name || 'No especificada'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.lastConnection || 'No disponible'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.totalActiveTime || '0h 0m'}</td>
           <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.activeUsers || 0}</td>
-          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${branch.actions?.exports || 0}</td>
+          <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee; font-weight: ${(branch.actions?.exports > 0) ? 'bold' : 'normal'};">${branch.actions?.exports || 0}</td>
         </tr>
       `;
     });
@@ -160,7 +183,12 @@ export const sendActivityReport = async (
   
   // Detalles de cada sucursal
   if (activityData.branches && Array.isArray(activityData.branches) && activityData.branches.length > 0) {
-    activityData.branches.forEach((branch: any) => {
+    // Ordenar sucursales por número de exportaciones (descendente)
+    const sortedBranches = [...activityData.branches].sort((a, b) => 
+      ((b.actions && b.actions.exports) || 0) - ((a.actions && a.actions.exports) || 0)
+    );
+    
+    sortedBranches.forEach((branch: any) => {
       // Asegurarse de que branch sea un objeto válido
       if (!branch || typeof branch !== 'object') return;
       
@@ -171,7 +199,7 @@ export const sendActivityReport = async (
             <li><strong>Usuarios activos:</strong> ${branch.activeUsers || 0}</li>
             <li><strong>Tiempo total activo:</strong> ${branch.totalActiveTime || '0h 0m'}</li>
             <li><strong>Última conexión:</strong> ${branch.lastConnection || 'No disponible'}</li>
-            <li><strong>Exportaciones Excel:</strong> ${(branch.actions && branch.actions.exports) || 0}</li>
+            <li style="${(branch.actions && branch.actions.exports > 0) ? 'font-weight: bold; color: #0066cc;' : ''}"><strong>Exportaciones Excel:</strong> ${(branch.actions && branch.actions.exports) || 0}</li>
             <li><strong>Descargas de reportes:</strong> ${(branch.actions && branch.actions.downloads) || 0}</li>
             <li><strong>Predicciones generadas:</strong> ${(branch.actions && branch.actions.predictions) || 0}</li>
             <li><strong>Vistas de predicciones:</strong> ${(branch.actions && branch.actions.views) || 0}</li>

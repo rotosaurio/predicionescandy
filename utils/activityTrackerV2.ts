@@ -1,7 +1,8 @@
-import { getCurrentUser } from './auth';
+import { getCurrentUser, logoutDueToInactivity } from './auth';
 
 // Configuración de tiempos
-const IDLE_TIMEOUT = 180000; // 3 minutos de inactividad = usuario idle
+const IDLE_TIMEOUT = 600000; // 10 minutos de inactividad = usuario idle
+const MAX_IDLE_BEFORE_LOGOUT = 600000; // 10 minutos de idle time antes de cerrar sesión
 const MIN_ACTIVITY_RECORD_INTERVAL = 10000; // 10 segundos mínimo entre registros
 const PAGE_VISIBILITY_CHECK_INTERVAL = 1000; // Revisar visibilidad cada segundo
 const SESSION_SYNC_INTERVAL = 60000; // Sincronizar sesión cada 1 minuto
@@ -448,6 +449,9 @@ class ActivityTrackerV2 implements IActivityTrackerV2 {
         // Actualizar tiempo activo
         this.updateActiveTime();
         
+        // Verificar si el usuario está inactivo y cerrar sesión si es necesario
+        this.checkIdleState();
+        
         // Calcular tiempo activo desde la última sincronización
         const now = Date.now();
         const timeSinceLastSync = now - this.lastSyncTime;
@@ -544,6 +548,54 @@ class ActivityTrackerV2 implements IActivityTrackerV2 {
     }).catch(error => {
       console.error('Error al enviar fin de sesión al servidor:', error);
     });
+  }
+
+  private checkIdleState(): void {
+    if (!this.session) return;
+    
+    const now = new Date().getTime();
+    const lastActivity = this.session.lastActivity.getTime();
+    const idleTime = now - lastActivity;
+    
+    // Verificar si el usuario está inactivo
+    if (idleTime > IDLE_TIMEOUT && !this.session.isIdle) {
+      this.session.isIdle = true;
+      this.session.idleSince = new Date();
+      this.recordAction('user_idle');
+      
+      console.log('Usuario inactivo detectado', {
+        userId: this.session.userId,
+        username: this.session.username,
+        idleTime: Math.floor(idleTime / 1000)
+      });
+    }
+    
+    // Verificar si el idle time excede el máximo permitido antes de logout
+    if (idleTime > MAX_IDLE_BEFORE_LOGOUT) {
+      console.log('Sesión cerrada por inactividad', {
+        userId: this.session.userId,
+        username: this.session.username,
+        idleTime: Math.floor(idleTime / 1000)
+      });
+      
+      // Registrar acción de cierre por inactividad
+      this.recordAction('session_timeout');
+      
+      // Forzar cierre de sesión y redireccionar a login
+      this.forceLogout();
+    }
+  }
+  
+  private forceLogout(): void {
+    if (!this.session) return;
+    
+    // Finalizar sesión actual
+    this.stopTracking();
+    
+    // Usar la función centralizada para logout por inactividad
+    if (typeof window !== 'undefined') {
+      logoutDueToInactivity();
+    }
   }
 }
 

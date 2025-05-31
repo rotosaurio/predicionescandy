@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { isUserLoggedIn, getCurrentUser, checkUserAccess } from '../utils/auth';
+import InactivityWarning from './InactivityWarning';
+import InactivityCounter from './InactivityCounter';
+import { handleUserActivity } from '../utils/inactivityHandler';
+import { getActivityTrackerV2 } from '../utils/activityTrackerV2';
 
 interface RouteGuardProps {
   children: React.ReactNode;
@@ -10,6 +14,31 @@ export default function RouteGuard({ children }: RouteGuardProps) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [authChecked, setAuthChecked] = useState(false); // Add this state to track if auth check has completed
+  const [showInactivityWarning, setShowInactivityWarning] = useState(false);
+
+  // Iniciar y detener el ActivityTracker cuando cambia la autorización
+  useEffect(() => {
+    if (authorized) {
+      // Iniciar seguimiento de actividad
+      const activityTracker = getActivityTrackerV2();
+      activityTracker.startTracking(router.pathname);
+      
+      // Configurar monitor de inactividad
+      const inactivityCheckInterval = setInterval(() => {
+        const activityStats = activityTracker.getSessionStats();
+        if (activityStats && activityStats.isIdle) {
+          setShowInactivityWarning(true);
+        } else {
+          setShowInactivityWarning(false);
+        }
+      }, 5000); // Comprobar cada 5 segundos
+      
+      return () => {
+        clearInterval(inactivityCheckInterval);
+        activityTracker.stopTracking();
+      };
+    }
+  }, [authorized, router.pathname]);
 
   useEffect(() => {
     // Auth check function that verifies if route can be accessed
@@ -78,8 +107,30 @@ export default function RouteGuard({ children }: RouteGuardProps) {
     };
   }, [router]);
 
+  // Función para manejar la actividad del usuario y reiniciar el temporizador
+  const handleActivity = () => {
+    handleUserActivity();
+    setShowInactivityWarning(false);
+  };
+
   // Show loading state until auth check is complete, then show content if authorized
-  return authChecked ? 
-    (authorized ? <>{children}</> : <div className="flex justify-center items-center h-screen">Autenticando...</div>)
-    : <div className="flex justify-center items-center h-screen">Cargando...</div>;
+  return authChecked ? (
+    authorized ? (
+      <>
+        {children}
+        <InactivityCounter onActivity={handleActivity} />
+        {showInactivityWarning && (
+          <InactivityWarning 
+            warningTime={0} // Ya estamos controlando cuándo mostrar la advertencia
+            logoutTime={60000} // 1 minuto
+            onActivity={handleActivity}
+          />
+        )}
+      </>
+    ) : (
+      <div className="flex justify-center items-center h-screen">Autenticando...</div>
+    )
+  ) : (
+    <div className="flex justify-center items-center h-screen">Cargando...</div>
+  );
 }

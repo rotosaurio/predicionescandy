@@ -72,6 +72,24 @@ export function clearCurrentUser(): void {
   }
 }
 
+// Función para cerrar sesión por inactividad
+export function logoutDueToInactivity(): void {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    // Limpiar datos de usuario
+    clearCurrentUser();
+    
+    // Redireccionar a página de login con parámetro de timeout
+    const currentPath = window.location.pathname;
+    window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}&timeout=true`;
+  } catch (e) {
+    console.error('Error en logout por inactividad:', e);
+    // Redirección de emergencia en caso de error
+    window.location.href = '/login?timeout=true';
+  }
+}
+
 export function isUserLoggedIn(): boolean {
   if (typeof window === 'undefined') return false;
   

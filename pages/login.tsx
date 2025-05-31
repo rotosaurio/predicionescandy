@@ -11,6 +11,7 @@ export default function Login() {
   const [systemStatus, setSystemStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { timeout } = router.query;
 
   // Check system status on component mount
   useEffect(() => {
@@ -27,6 +28,13 @@ export default function Login() {
     
     return () => clearInterval(intervalId);
   }, []);
+
+  // Mostrar mensaje de sesión cerrada por inactividad
+  useEffect(() => {
+    if (timeout === 'true') {
+      setError('Su sesión ha sido cerrada por inactividad. Por favor, inicie sesión nuevamente.');
+    }
+  }, [timeout]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +63,7 @@ export default function Login() {
         }
         
         // Determine redirect path for other user types
-        let returnUrl = router.query.returnUrl as string || '/';
+        let returnUrl = router.query.redirect as string || router.query.returnUrl as string || '/';
         
         // Add validation for sucursal paths
         if (returnUrl.includes('/sucursal/[')) {
@@ -107,6 +115,18 @@ export default function Login() {
               <div className="flex">
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error}</h3>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {timeout === 'true' && !error && (
+            <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                    Su sesión ha sido cerrada por inactividad. Por favor, inicie sesión nuevamente.
+                  </h3>
                 </div>
               </div>
             </div>

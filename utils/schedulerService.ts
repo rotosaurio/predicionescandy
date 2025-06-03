@@ -74,10 +74,86 @@ export const generateActivityReport = async (): Promise<any> => {
 
     logger.info(`Período del reporte: ${startDateStr} a ${endDateStr} (SOLO últimas 24 horas)`);
     
-    // Buscar actividad en todas las colecciones relevantes para las últimas 24 horas
+    // 1. PRIMERO: Obtener TODAS las sucursales que han existido alguna vez en el sistema
+    // Esto incluirá sucursales que no han tenido actividad en las últimas 24 horas
+    const allBranchesFromSessions = await db.collection('user_daily_sessions')
+      .aggregate([
+        { 
+          $group: {
+            _id: '$branch',
+            lastActivity: { $max: '$lastActivity' },
+            lastEndTime: { $max: '$endTime' }
+          }
+        },
+        { 
+          $project: {
+            _id: 0,
+            name: '$_id',
+            lastActivity: { 
+              $cond: {
+                if: { $gte: ['$lastActivity', '$lastEndTime'] },
+                then: '$lastActivity',
+                else: '$lastEndTime'
+              }
+            }
+          }
+        }
+      ])
+      .toArray();
+
+    // También obtener sucursales de user_sessions para asegurar cobertura completa
+    const allBranchesFromUserSessions = await db.collection('user_sessions')
+      .aggregate([
+        { 
+          $group: {
+            _id: '$branch',
+            lastActivity: { $max: '$lastActivity' }
+          }
+        },
+        { 
+          $project: {
+            _id: 0,
+            name: '$_id',
+            lastActivity: 1
+          }
+        }
+      ])
+      .toArray();
+
+    // Crear mapa de todas las sucursales con su última actividad
+    const allBranchesMap = new Map();
     
-    // 1. Consultar actividad en user_daily_sessions para todas las sucursales
-    const branchActivity = await db.collection('user_daily_sessions')
+    // Agregar sucursales de user_daily_sessions
+    allBranchesFromSessions.forEach((branch: any) => {
+      const branchName = branch.name || 'No especificada';
+      allBranchesMap.set(branchName, {
+        name: branchName,
+        lastActivity: branch.lastActivity
+      });
+    });
+
+    // Agregar sucursales de user_sessions (actualizando la fecha si es más reciente)
+    allBranchesFromUserSessions.forEach((branch: any) => {
+      const branchName = branch.name || 'No especificada';
+      if (!allBranchesMap.has(branchName)) {
+        allBranchesMap.set(branchName, {
+          name: branchName,
+          lastActivity: branch.lastActivity
+        });
+      } else {
+        const existing = allBranchesMap.get(branchName);
+        if (branch.lastActivity && (!existing.lastActivity || new Date(branch.lastActivity) > new Date(existing.lastActivity))) {
+          existing.lastActivity = branch.lastActivity;
+        }
+      }
+    });
+
+    logger.info(`Encontradas ${allBranchesMap.size} sucursales totales en el sistema`);
+    
+    // 2. Buscar actividad RECIENTE (últimas 24 horas) en todas las colecciones relevantes
+    
+    // Consultar actividad en user_daily_sessions para las últimas 24 horas
+    const recentBranchActivity = await db.collection('user_daily_sessions')
       .aggregate([
         { 
           $match: { 
@@ -133,29 +209,28 @@ export const generateActivityReport = async (): Promise<any> => {
       ])
       .toArray();
     
-    // Obtener todas las sucursales activas de user_sessions para asegurar capturar todas
-    // SOLO de las últimas 24 horas
-    const activeSessions = await db.collection('user_sessions')
+    // Obtener sesiones activas de las últimas 24 horas
+    const recentActiveSessions = await db.collection('user_sessions')
       .find({
         lastActivity: { $gte: startDate, $lte: endDate } // Filtro explícito para el rango de 24 horas
       })
       .toArray();
     
-    // Crear un mapa de sucursales desde las sesiones activas
-    const branchMap = new Map();
-    activeSessions.forEach((session: any) => {
+    // Crear un mapa de actividad reciente
+    const recentActivityMap = new Map();
+    recentActiveSessions.forEach((session: any) => {
       // Verificar explícitamente que la actividad está dentro del rango de 24 horas
       if (new Date(session.lastActivity) >= startDate && new Date(session.lastActivity) <= endDate) {
         const branchName = session.branch || 'No especificada';
-        if (!branchMap.has(branchName)) {
-          branchMap.set(branchName, {
+        if (!recentActivityMap.has(branchName)) {
+          recentActivityMap.set(branchName, {
             name: branchName,
             totalActiveTime: 0,
             activeUsers: new Set(),
             lastConnection: session.lastActivity
           });
         } else {
-          const branch = branchMap.get(branchName);
+          const branch = recentActivityMap.get(branchName);
           if (new Date(session.lastActivity) > new Date(branch.lastConnection)) {
             branch.lastConnection = session.lastActivity;
           }
@@ -164,11 +239,11 @@ export const generateActivityReport = async (): Promise<any> => {
       }
     });
     
-    // Incorporar los datos de interacciones al mapa de sucursales
+    // Incorporar los datos de interacciones al mapa de actividad reciente
     dailyInteractions.forEach((interaction: any) => {
       const branchName = interaction.name || 'No especificada';
-      if (!branchMap.has(branchName)) {
-        branchMap.set(branchName, {
+      if (!recentActivityMap.has(branchName)) {
+        recentActivityMap.set(branchName, {
           name: branchName,
           totalActiveTime: 0,
           activeUsers: new Set(),
@@ -176,21 +251,10 @@ export const generateActivityReport = async (): Promise<any> => {
           totalInteractions: interaction.totalInteractions
         });
       } else {
-        const branch = branchMap.get(branchName);
+        const branch = recentActivityMap.get(branchName);
         branch.totalInteractions = interaction.totalInteractions;
-        // No intentamos acceder a interaction.users ni manipular la lista de usuarios
-        // solo registramos que hay interacciones
       }
     });
-    
-    // Convertir mapa a array
-    const additionalBranches = Array.from(branchMap.values()).map((branch: any) => ({
-      name: branch.name,
-      totalActiveTime: branch.totalActiveTime || 0,
-      activeUsers: branch.activeUsers?.size || 0, // No usamos uniqueUsersCount
-      lastConnection: branch.lastConnection,
-      totalInteractions: branch.totalInteractions || 0
-    }));
     
     // 3. Obtener exportaciones y otras acciones de las últimas 24 horas EXCLUSIVAMENTE
     const userActions = await db.collection('system_log')
@@ -283,23 +347,31 @@ export const generateActivityReport = async (): Promise<any> => {
       ])
       .toArray();
     
-    // Combinar todas las sucursales únicas de ambas fuentes
-    const allBranchNames = new Set([
-      ...branchActivity.map((branch: any) => branch.name),
-      ...additionalBranches.map((branch: any) => branch.name),
-      ...Object.keys(branchActions)
-    ]);
-    
-    // Crear lista de sucursales combinadas con datos completos
-    const combinedBranches = Array.from(allBranchNames).map((branchName: any) => {
+    // 5. COMBINAR: Crear lista de TODAS las sucursales con sus datos
+    const combinedBranches = Array.from(allBranchesMap.values()).map((branch: any) => {
+      const branchName = branch.name;
+      
       // Buscar en branchActivity (datos de user_daily_sessions de las últimas 24 horas)
-      const activityData = branchActivity.find((b: any) => b.name === branchName);
+      const recentActivityData = recentBranchActivity.find((b: any) => b.name === branchName);
       
-      // Buscar en additional branches (datos de user_sessions de las últimas 24 horas)
-      const additionalData = additionalBranches.find(b => b.name === branchName);
+      // Buscar en recent activity map (datos de user_sessions de las últimas 24 horas)
+      const recentSessionData = recentActivityMap.get(branchName);
       
-      // Combinar datos solo de las últimas 24 horas
-      const branch: {
+      // Determinar la última conexión: usar la más reciente entre la histórica y la de las últimas 24 horas
+      let lastConnection = branch.lastActivity; // Última actividad histórica de esta sucursal
+      
+      // Si hay actividad reciente, usarla si es más reciente que la histórica
+      if (recentActivityData?.lastConnection && 
+          new Date(recentActivityData.lastConnection) > new Date(lastConnection || 0)) {
+        lastConnection = recentActivityData.lastConnection;
+      }
+      
+      if (recentSessionData?.lastConnection && 
+          new Date(recentSessionData.lastConnection) > new Date(lastConnection || 0)) {
+        lastConnection = recentSessionData.lastConnection;
+      }
+      
+      const result: {
         name: any;
         totalActiveTime: number;
         activeUsers: number;
@@ -317,10 +389,10 @@ export const generateActivityReport = async (): Promise<any> => {
         };
       } = {
         name: branchName,
-        // Sumamos los tiempos activos de ambas fuentes, que ya están filtrados por las últimas 24 horas
-        totalActiveTime: (activityData?.totalActiveTime || 0) + (additionalData?.totalActiveTime || 0),
-        activeUsers: activityData?.activeUsers || additionalData?.activeUsers || 0,
-        lastConnection: activityData?.lastConnection || additionalData?.lastConnection || null,
+        // Solo incluir tiempo activo de las últimas 24 horas
+        totalActiveTime: (recentActivityData?.totalActiveTime || 0) + (recentSessionData?.totalActiveTime || 0),
+        activeUsers: recentActivityData?.activeUsers || recentSessionData?.activeUsers?.size || 0,
+        lastConnection: lastConnection, // Esta será la última conexión histórica
         // Acciones de las últimas 24 horas
         actions: branchActions[branchName] || {
           exports: 0,
@@ -330,12 +402,12 @@ export const generateActivityReport = async (): Promise<any> => {
         }
       };
       
-      // Añadir última acción si existe
+      // Añadir última acción si existe (solo de las últimas 24 horas)
       const recentAction = recentActions.find((a: any) => a.branch === branchName);
       if (recentAction) {
         // Verificar que la última acción está dentro del período de 24 horas
         if (new Date(recentAction.timestamp) >= startDate && new Date(recentAction.timestamp) <= endDate) {
-          branch.recentActivity = {
+          result.recentActivity = {
             action: recentAction.action,
             username: recentAction.username,
             timestamp: formatDate(recentAction.timestamp)
@@ -343,7 +415,7 @@ export const generateActivityReport = async (): Promise<any> => {
         }
       }
       
-      return branch;
+      return result;
     });
     
     // Formatear tiempos activos para todas las sucursales (solo últimas 24 horas)
@@ -352,6 +424,13 @@ export const generateActivityReport = async (): Promise<any> => {
       totalActiveTime: formatDuration(branch.totalActiveTime),
       lastConnection: formatDate(branch.lastConnection)
     }));
+
+    // Ordenar por última conexión (más reciente primero)
+    formattedBranches.sort((a, b) => {
+      const dateA = a.lastConnection ? new Date(a.lastConnection).getTime() : 0;
+      const dateB = b.lastConnection ? new Date(b.lastConnection).getTime() : 0;
+      return dateB - dateA;
+    });
     
     // Consultar usuarios más activos
     const userActivity = await db.collection('user_daily_sessions')
